@@ -26,3 +26,11 @@ dist/
 build/
 *.egg-info/
 .DS_Store
+
+# Next.js Frontend
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
