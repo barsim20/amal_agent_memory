@@ -1,18 +1,7 @@
 import type { Metadata } from "next";
-import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
+import fs from "fs";
+import path from "path";
 import "./globals.css";
-
-const plusJakarta = Plus_Jakarta_Sans({
-  variable: "--font-sans",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-});
-
-const jetbrainsMono = JetBrains_Mono({
-  variable: "--font-mono",
-  subsets: ["latin"],
-  weight: ["400", "500"],
-});
 
 export const metadata: Metadata = {
   title: "Amal — Teaching Assistant & Memory Dashboard",
@@ -20,16 +9,39 @@ export const metadata: Metadata = {
     "Minimalist conversational assistant powered by Claude Haiku and LangGraph categorical memory.",
 };
 
+function getInlineCss(): string {
+  try {
+    const cssPath = path.join(process.cwd(), "app", "globals.css");
+    return fs.readFileSync(cssPath, "utf-8");
+  } catch {
+    return "";
+  }
+}
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const inlineCss = getInlineCss();
   return (
     <html lang="en">
-      <body className={`${plusJakarta.variable} ${jetbrainsMono.variable}`}>
-        {children}
-      </body>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link
+          rel="preconnect"
+          href="https://fonts.gstatic.com"
+          crossOrigin="anonymous"
+        />
+        <link
+          href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+          rel="stylesheet"
+        />
+        {inlineCss && (
+          <style dangerouslySetInnerHTML={{ __html: inlineCss }} />
+        )}
+      </head>
+      <body>{children}</body>
     </html>
   );
 }
