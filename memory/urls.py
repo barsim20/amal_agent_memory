@@ -11,6 +11,7 @@ urlpatterns = [
     path("api/memories/<str:memory_id>/", views.api_memory_detail, name="api_memory_detail"),
     path("api/consent/<str:consent_id>/", views.api_resolve_consent, name="api_resolve_consent"),
     path("api/notifications/<str:notification_id>/action/", views.api_notification_action, name="api_notification_action"),
+    path("api/chat/", views.api_chat, name="api_chat"),
     path("api/live-pass/", views.api_live_pass, name="api_live_pass"),
     path("api/dream/", views.api_dream_run, name="api_dream_run"),
     path("api/retrieve/", views.api_retrieve_context, name="api_retrieve_context"),

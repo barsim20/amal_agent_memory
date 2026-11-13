@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.utils import timezone
@@ -14,6 +15,11 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from .constants import CORE_CATEGORIES
+from .llm import (
+    extract_memories_with_llm,
+    generate_chat_reply,
+    is_llm_configured,
+)
 from .models import (
     AggregateInsight,
     ConsentRequest,
@@ -303,14 +309,127 @@ def build_categorical_state(teacher_id: str) -> dict[str, Any]:
         "taxonomy_changesets": changesets_out,
         "tombstone_count": MemoryTombstone.objects.filter(teacher=teacher).count(),
         "quality_metrics": compute_undo_quality_metrics(),
+        "llm_status": {
+            "chat_model": getattr(settings, "AMAL_CHAT_MODEL", "claude-3-5-haiku-latest"),
+            "extraction_model": getattr(settings, "AMAL_EXTRACTION_MODEL", "claude-3-5-haiku-latest"),
+            "api_key_configured": is_llm_configured(),
+            "db_engine": settings.DATABASES["default"]["ENGINE"].split(".")[-1],
+        },
     }
 
 
 def dashboard_view(request: HttpRequest) -> HttpResponse:
-    """Render the simple, functional Amal Web categorical memory interface."""
+    """Render the user-facing Amal Web Chat + Categorical Memory interface."""
     teacher_id = _get_teacher_id(request)
     get_or_create_teacher(teacher_id)
     return render(request, "memory/dashboard.html", {"teacher_id": teacher_id})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_chat(request: HttpRequest) -> JsonResponse:
+    """
+    Conversational endpoint for chatting with the Amal Assistant (Claude Haiku):
+    1. Handles explicit memory commands ('What do you remember about me?', 'Forget...', 'YES'/'NO' consent replies)
+    2. Assembles per-turn memory context (`CoreProfile` + 3-signal RRF hybrid search)
+    3. Generates assistant reply using Claude Haiku (`AMAL_CHAT_MODEL`)
+    4. Extracts candidate memories from the teacher's message using the LLM extraction model (`AMAL_EXTRACTION_MODEL`)
+       and persists them via `run_live_memory_pass`.
+    """
+    body = _parse_body(request)
+    teacher_id = _get_teacher_id(request, body)
+    user_message = (body.get("message") or "").strip()
+    if not user_message:
+        return JsonResponse({"error": "Message is required"}, status=400)
+
+    surface = body.get("surface", "web")
+    product_area = body.get("product_area", "chat")
+    conversation_id = body.get("conversation_id", "conv-web-chat")
+    message_id = body.get("message_id", f"msg-{int(timezone.now().timestamp() * 1000)}")
+    chat_history = body.get("history") or []
+    api_key_override = (body.get("api_key") or "").strip() or None
+
+    teacher = get_or_create_teacher(teacher_id)
+
+    # 1. Check if the teacher issued a synchronous memory control command or consent reply
+    cmd_res = handle_whatsapp_memory_command(teacher_id, user_message)
+    if cmd_res.get("handled"):
+        return JsonResponse(
+            {
+                "reply": cmd_res.get("reply", ""),
+                "command_handled": cmd_res.get("command"),
+                "chat_model": "amal-memory-tool",
+                "extraction_model": "amal-memory-tool",
+                "live_llm": is_llm_configured(api_key_override),
+                "turn_context": {
+                    "retrieved_memories": [],
+                    "skipped_retrieval": True,
+                    "latency_ms": 0.0,
+                },
+                "extracted_candidates": [],
+                "live_pass_results": [cmd_res.get("result")] if cmd_res.get("result") else [],
+                "state": build_categorical_state(teacher_id),
+            }
+        )
+
+    # 2. Assemble turn context (CoreProfile + 3-signal RRF hybrid search)
+    turn_context = assemble_turn_context(
+        teacher_id=teacher_id,
+        user_message=user_message,
+        surface=surface,
+        product_area=product_area,
+    )
+
+    # 3. Call Claude Haiku to generate the assistant's reply with injected memory context
+    chat_out = generate_chat_reply(
+        user_message=user_message,
+        turn_context=turn_context,
+        chat_history=chat_history,
+        teacher_name=teacher.display_name or teacher.teacher_id,
+        api_key_override=api_key_override,
+    )
+
+    # 4. Run LLM Memory Extraction (`extract_memories_with_llm`) + Live Pass persistence
+    active_life_areas = list(
+        MemoryCategory.objects.filter(
+            teacher=teacher,
+            kind="life_area",
+            status="active",
+        ).values("slug", "label_en")
+    )
+    extracted_candidates, ext_model_used, ext_live_llm = extract_memories_with_llm(
+        conversation_text=user_message,
+        core_profile_summary=turn_context.get("core_profile", ""),
+        active_life_areas=active_life_areas,
+        api_key_override=api_key_override,
+    )
+
+    live_pass_results: list[dict[str, Any]] = []
+    if extracted_candidates:
+        task_out = run_live_memory_pass.delay(
+            teacher_id=teacher_id,
+            reflection_items=extracted_candidates,
+            surface=surface,
+            product_area=product_area,
+            conversation_id=conversation_id,
+            message_id=message_id,
+        )
+        res_data = task_out.get() if hasattr(task_out, "get") else task_out
+        live_pass_results = res_data.get("results", [])
+
+    return JsonResponse(
+        {
+            "reply": chat_out["reply"],
+            "chat_model": chat_out["model"],
+            "extraction_model": ext_model_used,
+            "live_llm": bool(chat_out["live_llm"] or ext_live_llm),
+            "llm_error": chat_out.get("error"),
+            "turn_context": turn_context,
+            "extracted_candidates": extracted_candidates,
+            "live_pass_results": live_pass_results,
+            "state": build_categorical_state(teacher_id),
+        }
+    )
 
 
 @csrf_exempt

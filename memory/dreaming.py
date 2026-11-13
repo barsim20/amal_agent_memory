@@ -113,20 +113,38 @@ def _live_load_profile_node(state: LiveGraphState) -> dict[str, Any]:
 def _live_adapter_node(state: LiveGraphState) -> dict[str, Any]:
     """
     Adapter node (PRD line 136):
-    Maps reflection output to the memory schema (content, category, subcategory, source,
-    sensitivity, confidence, evidence message ids). Reuses fields the reflection already produces;
-    fills only what is missing, and skips facts already present in the teacher's CoreProfile.
+    Uses the LLM extraction model (`extract_memories_with_llm`, Claude Haiku) to extract and map
+    conversation turns / reflection output to the memory schema (content, category, subcategory,
+    source, sensitivity, confidence, evidence message ids). Reuses fields structured reflection
+    already produces and skips facts already present in the teacher's CoreProfile.
     """
     if not state.get("enabled", True):
         return {"adapted_candidates": []}
 
+    from .llm import extract_memories_with_llm
+    from .models import MemoryCategory
+
+    teacher_id = state["teacher_id"]
+    active_life_areas = list(
+        MemoryCategory.objects.filter(
+            teacher_id=teacher_id,
+            kind="life_area",
+            status="active",
+        ).values("slug", "label_en")
+    )
+
     raw_items = state.get("reflection_items") or []
-    core_profile_norm = normalize_statement(state.get("core_profile") or "")
+    core_profile_text = state.get("core_profile") or ""
+    core_profile_norm = normalize_statement(core_profile_text)
     adapted: list[dict[str, Any]] = []
 
     for item in raw_items:
         if isinstance(item, str):
-            sub_items = extract_atomic_statements_from_text(item)
+            sub_items, _ext_model, _live = extract_memories_with_llm(
+                conversation_text=item,
+                core_profile_summary=core_profile_text,
+                active_life_areas=active_life_areas,
+            )
         elif isinstance(item, dict):
             sub_items = [item]
         else:

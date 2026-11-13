@@ -472,3 +472,39 @@ class AmalMemoryAndDreamingTests(TestCase):
         self.assertIn(self.teacher_id, fanout1["teacher_ids"])
         fanout2 = run_nightly_dream_fanout()
         self.assertNotIn(self.teacher_id, fanout2["teacher_ids"])
+
+    def test_chat_endpoint_with_haiku_and_llm_extraction(self):
+        """
+        Verify `/api/chat/` generates a reply, runs LLM memory extraction on the teacher's turn,
+        saves extracted memories into the categorical schema, and retrieves them on subsequent turns.
+        """
+        resp1 = self.client.post(
+            "/api/chat/",
+            data=json.dumps(
+                {
+                    "teacher_id": self.teacher_id,
+                    "message": "I teach Grade 6 Mathematics and Science with 65 learners, and we have no projector.",
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(resp1.status_code, 200)
+        data1 = resp1.json()
+        self.assertTrue(data1["reply"])
+        self.assertGreaterEqual(len(data1["extracted_candidates"]), 1)
+
+        # Follow-up lesson planning chat retrieves the extracted classroom memory
+        resp2 = self.client.post(
+            "/api/chat/",
+            data=json.dumps(
+                {
+                    "teacher_id": self.teacher_id,
+                    "message": "Help me plan a 20-minute Hisabati group activity.",
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(resp2.status_code, 200)
+        data2 = resp2.json()
+        self.assertGreaterEqual(len(data2["turn_context"]["retrieved_memories"]), 1)
+

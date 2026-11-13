@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Amal Memory &amp; Dreaming — What Amal Remembers</title>
+  <title>Amal Memory &amp; Dreaming — Assistant Chat &amp; Categorical Memory</title>
   <style>
     :root {
       --bg: #f8fafc;
@@ -23,7 +23,7 @@
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      padding: 16px 24px 48px;
+      padding: 14px 20px 40px;
       font-family: system-ui, -apple-system, sans-serif;
       background: var(--bg);
       color: var(--text);
@@ -35,22 +35,21 @@
       flex-wrap: wrap;
       justify-content: space-between;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
       padding-bottom: 12px;
       border-bottom: 2px solid var(--border);
-      margin-bottom: 16px;
+      margin-bottom: 14px;
     }
-    h1 { margin: 0; font-size: 20px; }
-    h2 { margin: 0 0 8px; font-size: 16px; }
-    h3 { margin: 0 0 6px; font-size: 14px; }
-    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    h1 { margin: 0; font-size: 19px; }
+    h2 { margin: 0 0 8px; font-size: 15px; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
     button, .btn {
-      padding: 6px 12px;
+      padding: 6px 11px;
       border: 1px solid var(--border);
       background: var(--surface);
       color: var(--text);
       border-radius: 4px;
-      font-size: 13px;
+      font-size: 12.5px;
       font-weight: 600;
       cursor: pointer;
       text-decoration: none;
@@ -59,63 +58,124 @@
     button.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
     button.primary:hover { opacity: 0.92; }
     button.danger { color: var(--danger); border-color: #fca5a5; background: var(--danger-bg); }
-    input[type="text"], textarea, select {
-      padding: 6px 10px;
+    input[type="text"], input[type="password"], textarea, select {
+      padding: 6px 9px;
       border: 1px solid var(--border);
       border-radius: 4px;
       font-size: 13px;
       font-family: inherit;
     }
-    .grid-layout {
+    .main-grid {
       display: grid;
-      grid-template-columns: 2fr 1fr;
-      gap: 18px;
+      grid-template-columns: 440px 1fr;
+      gap: 16px;
       align-items: start;
     }
-    @media (max-width: 960px) {
-      .grid-layout { grid-template-columns: 1fr; }
+    @media (max-width: 1060px) {
+      .main-grid { grid-template-columns: 1fr; }
     }
     .panel {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 6px;
-      padding: 14px;
-      margin-bottom: 14px;
+      padding: 12px 14px;
+      margin-bottom: 12px;
     }
     .banner {
       background: var(--primary-light);
       border: 1px solid var(--primary);
       border-radius: 6px;
       padding: 10px 14px;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
     }
     .consent-card {
       background: var(--warn-bg);
       border: 1px solid var(--warn-border);
       border-radius: 6px;
-      padding: 12px 14px;
+      padding: 10px 14px;
       margin-bottom: 10px;
     }
     .taxonomy-card {
       background: var(--info-bg);
       border: 1px solid var(--info-border);
       border-radius: 6px;
-      padding: 12px 14px;
+      padding: 10px 14px;
       margin-bottom: 10px;
+    }
+    .chat-box {
+      display: flex;
+      flex-direction: column;
+      height: 540px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #f8fafc;
+      overflow: hidden;
+    }
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .msg {
+      max-width: 92%;
+      padding: 9px 12px;
+      border-radius: 6px;
+      font-size: 13.5px;
+      white-space: pre-wrap;
+    }
+    .msg.user {
+      align-self: flex-end;
+      background: var(--primary);
+      color: #ffffff;
+    }
+    .msg.assistant {
+      align-self: flex-start;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+    .msg-meta {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 6px;
+      padding-top: 5px;
+      border-top: 1px dashed #e2e8f0;
+    }
+    .chat-input-bar {
+      padding: 10px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 8px;
+    }
+    .quick-prompts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .quick-prompts button {
+      font-size: 11.5px;
+      padding: 4px 8px;
+      font-weight: 500;
+      text-align: left;
     }
     .category-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-      gap: 12px;
+      grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+      gap: 10px;
     }
     .category-box {
       border: 1px solid var(--border);
       border-radius: 6px;
-      padding: 12px;
+      padding: 10px 12px;
       background: var(--surface);
     }
     .category-header {
@@ -123,8 +183,8 @@
       justify-content: space-between;
       align-items: baseline;
       border-bottom: 1px solid #e2e8f0;
-      padding-bottom: 6px;
-      margin-bottom: 8px;
+      padding-bottom: 5px;
+      margin-bottom: 6px;
     }
     .badge {
       display: inline-block;
@@ -142,8 +202,8 @@
     .memory-row {
       border: 1px solid #e2e8f0;
       border-radius: 4px;
-      padding: 8px 10px;
-      margin-bottom: 8px;
+      padding: 7px 9px;
+      margin-bottom: 6px;
       background: #f8fafc;
     }
     .memory-meta {
@@ -156,11 +216,11 @@
       flex-wrap: wrap;
       gap: 6px;
     }
-    .memory-actions { display: flex; gap: 6px; }
+    .memory-actions { display: flex; gap: 5px; }
     pre {
       background: #0f172a;
       color: #f8fafc;
-      padding: 10px;
+      padding: 9px;
       border-radius: 4px;
       font-size: 12px;
       overflow-x: auto;
@@ -168,8 +228,8 @@
       margin: 6px 0 0;
     }
     .subcat-pills {
-      margin-bottom: 8px;
-      font-size: 12px;
+      margin-bottom: 6px;
+      font-size: 11.5px;
       color: var(--muted);
     }
     .empty-note {
@@ -180,18 +240,20 @@
     .status-bar {
       font-size: 12px;
       color: var(--muted);
+      margin-top: 2px;
     }
   </style>
 </head>
 <body>
   <header>
     <div>
-      <h1>What Amal Remembers (Amal Memory &amp; Dreaming)</h1>
+      <h1>Amal Assistant Chat &amp; Categorical Memory</h1>
       <div class="status-bar" id="teacherStatusBar">Loading teacher profile...</div>
+      <div class="status-bar" id="llmStatusBar"></div>
     </div>
     <div class="toolbar">
       <label for="teacherInput"><strong>Teacher ID:</strong></label>
-      <input type="text" id="teacherInput" value="{{ teacher_id }}" style="width: 170px;" />
+      <input type="text" id="teacherInput" value="{{ teacher_id }}" style="width: 155px;" />
       <button onclick="switchTeacher()">Load Teacher</button>
       <button class="primary" onclick="seedDemoData()">Seed Sample Classroom Data</button>
       <button onclick="runNightlyDream()">Run Nightly Dreaming &amp; Taxonomy Evolution</button>
@@ -208,112 +270,75 @@
   <!-- Nightly Taxonomy Reorganization Cards -->
   <div id="taxonomyCardsContainer"></div>
 
-  <div class="grid-layout">
-    <!-- LEFT COLUMN: Categorical Memory Representation -->
+  <div class="main-grid">
+    <!-- LEFT COLUMN: User-Facing Chat Interface (Claude Haiku + LLM Memory Extractor) -->
     <div>
-      <!-- 1. Always-Injected Core Profile Block -->
       <div class="panel">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <h2>1. Injected Core Profile Block (Max ~300 tokens, Redis-cached)</h2>
-          <span class="badge" id="coreProfileMeta">v1</span>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+          <h2>Chat with Amal (Claude Haiku)</h2>
+          <button onclick="clearChatWindow()">Clear Chat</button>
         </div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:8px;">
+          Chat uses <strong>Claude Haiku</strong> with your injected <code>CoreProfile</code> + hybrid-retrieved memories. Every message is also analyzed by the <strong>LLM Memory Extractor</strong> to save or update categorized memories.
+        </div>
+
+        <details style="margin-bottom:8px; font-size:12px;">
+          <summary style="cursor:pointer; font-weight:600; color:var(--muted);">Optional: Override Anthropic API Key for this session (or set in .env)</summary>
+          <div style="display:flex; gap:6px; margin-top:6px;">
+            <input type="password" id="sessionApiKey" style="flex:1;" placeholder="sk-ant-api03-... (leave blank to use .env ANTHROPIC_API_KEY)" />
+          </div>
+        </details>
+
+        <div class="chat-box">
+          <div class="chat-messages" id="chatMessages">
+            <div class="msg assistant">Habari Mwalimu! I am Amal, your teaching assistant. Tell me about your class or ask for help planning a lesson — I will remember your classroom context automatically.</div>
+          </div>
+          <div class="chat-input-bar">
+            <input
+              type="text"
+              id="chatInput"
+              style="flex:1;"
+              placeholder="Message Amal (e.g. I teach Grade 6 Science with 60 learners...)"
+              onkeydown="if(event.key==='Enter'){sendChatMessage();}"
+            />
+            <button class="primary" id="sendChatBtn" onclick="sendChatMessage()">Send Message</button>
+          </div>
+        </div>
+
+        <div class="quick-prompts">
+          <span style="font-size:11.5px; color:var(--muted); width:100%;"><strong>Try sample teacher messages:</strong></span>
+          <button onclick="fillAndSendChat('I teach Grade 6 Mathematics and Science with 65 learners, and we have no projector. Can you suggest a quick group activity?')">
+            "I teach Grade 6 Maths &amp; Science with 65 learners, no projector..."
+          </button>
+          <button onclick="fillAndSendChat('I co-plan my Science lessons with my colleague Wanjiru.')">
+            "I co-plan with my colleague Wanjiru" (Sensitive &rarr; Consent)
+          </button>
+          <button onclick="fillAndSendChat('Help me create a 20-minute Hisabati lesson plan for my class')">
+            "Help me create a 20-minute Hisabati lesson plan" (Uses Memory)
+          </button>
+          <button onclick="fillAndSendChat('What do you remember about me?')">
+            "What do you remember about me?"
+          </button>
+        </div>
+      </div>
+
+      <!-- Hybrid Search & Per-Turn Context Inspector -->
+      <div class="panel">
+        <h2>Hybrid Retrieval Inspector (3-Signal RRF k=60)</h2>
         <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">
-          Built automatically from <strong>Profile</strong>, <strong>Teaching context</strong>, <strong>Preferences</strong>, and active <strong>Life areas</strong>.
-        </div>
-        <pre id="coreProfileText">(Empty — seed sample data or add memories below)</pre>
-      </div>
-
-      <!-- 2. Dynamic Life Areas (Top-Level Evolving Categories, Cap of 8) -->
-      <div class="panel">
-        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
-          <div>
-            <h2>2. Dynamic Life Areas (Evolving Per-Teacher Categories, Cap 8 Active)</h2>
-            <div style="font-size:12px; color:var(--muted);">
-              Created automatically by Nightly Dreaming when &ge;5 memories across &ge;2 conversations form a new non-sensitive cluster, or created manually by the teacher.
-            </div>
-          </div>
-          <div style="display:flex; gap:6px;">
-            <input type="text" id="newLifeAreaEn" placeholder="New Life Area name (EN)" />
-            <input type="text" id="newLifeAreaSw" placeholder="Jina la Eneo (SW)" />
-            <button onclick="createLifeArea()">Create Life Area</button>
-          </div>
-        </div>
-        <div id="lifeAreasContainer" class="category-grid"></div>
-      </div>
-
-      <!-- 3. Protected Core Categories (The 10 Seeded Categories) -->
-      <div class="panel">
-        <h2>3. Protected Core Categories (10 Seeded Categories)</h2>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">
-          Protected core categories are never deleted, merged, or renamed by dreaming. Sensitive categories (<strong>People</strong>, <strong>Wellbeing</strong>, <strong>Named learners</strong>) require explicit teacher consent.
-        </div>
-        <div id="coreCategoriesContainer" class="category-grid"></div>
-      </div>
-
-      <!-- 4. Bi-Temporal Superseded History & Tombstones -->
-      <div class="panel">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <h2>4. Bi-Temporal Superseded History &amp; HMAC Tombstones</h2>
-          <span class="badge" id="tombstoneBadge">Tombstones: 0</span>
-        </div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:8px;">
-          Corrections never overwrite in place: old facts become <code>superseded</code> with <code>valid_to</code> and <code>retired_at</code>. Teacher deletions are hard deletes with keyed HMAC tombstones.
-        </div>
-        <div id="supersededContainer"></div>
-      </div>
-    </div>
-
-    <!-- RIGHT COLUMN: Functional Simulators, Notifications & Controls -->
-    <div>
-      <!-- A. Live Pass & WhatsApp / Reflection Simulator -->
-      <div class="panel">
-        <h2>A. Live Pass &amp; Conversation Input</h2>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:8px;">
-          Simulate a teacher statement, reflection output, or WhatsApp command (e.g. <em>"What do you remember about me?"</em>, <em>"Forget that I teach Grade 6"</em>, <em>"Stop remembering"</em>).
-        </div>
-        <textarea id="liveInputText" rows="3" style="width:100%; margin-bottom:8px;" placeholder="e.g. I teach 65 learners per class now."></textarea>
-        <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;">
-          <select id="liveSurface">
-            <option value="web">Surface: Amal Web</option>
-            <option value="whatsapp">Surface: WhatsApp</option>
-          </select>
-          <select id="liveArea">
-            <option value="chat">Area: Assistant Chat</option>
-            <option value="tools">Area: Amal Tools</option>
-            <option value="academy">Area: Amal Academy</option>
-          </select>
-          <input type="text" id="liveConvId" value="conv-101" style="width:100px;" title="Conversation ID" />
-          <button class="primary" onclick="submitLivePass()">Run Live Pass</button>
-        </div>
-        <div id="livePassResultBox" style="font-size:12px;"></div>
-      </div>
-
-      <!-- B. Hybrid Search & Per-Turn Context Assembly -->
-      <div class="panel">
-        <h2>B. Hybrid Retrieval &amp; Turn Context (RRF k=60)</h2>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:8px;">
-          Fuses exact cosine similarity (<code>halfvec(1024)</code>), un-stemmed <code>simple</code> FTS, and <code>pg_trgm</code> similarity. Trivial greetings skip retrieval.
+          Test exact cosine similarity (<code>halfvec(1024)</code>) + un-stemmed <code>simple</code> FTS + <code>pg_trgm</code> similarity directly.
         </div>
         <div style="display:flex; gap:6px; margin-bottom:8px;">
-          <input type="text" id="retrieveQuery" style="flex:1;" placeholder="e.g. Help me create a Grade 6 Hisabati lesson plan" value="Help me create a Grade 6 Hisabati lesson plan" />
-          <button class="primary" onclick="runHybridRetrieval()">Test Retrieval</button>
+          <input type="text" id="retrieveQuery" style="flex:1;" value="Help me create a Grade 6 Hisabati lesson plan" />
+          <button onclick="runHybridRetrieval()">Test Retrieval</button>
         </div>
         <div id="retrievalResultBox"></div>
       </div>
 
-      <!-- C. Notification Feed (30-day history & Since Last Visit) -->
+      <!-- Teacher Settings & Controls -->
       <div class="panel">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <h2>C. Memory Notification List</h2>
-          <span class="badge" id="unreadCountBadge">0 unread</span>
-        </div>
-        <div id="notificationListContainer" style="max-height: 280px; overflow-y: auto; margin-top:8px;"></div>
-      </div>
-
-      <!-- D. Teacher Controls & Settings -->
-      <div class="panel">
-        <h2>D. Teacher Memory Controls &amp; Settings</h2>
-        <div style="display:flex; flex-direction:column; gap:8px; margin-top:8px;">
+        <h2>Teacher Memory Controls &amp; Settings</h2>
+        <div style="display:flex; flex-direction:column; gap:8px; margin-top:6px;">
           <label>
             <input type="checkbox" id="settingEnabled" onchange="saveSettings()" />
             <strong>Memory Enabled</strong> (Unchecking opts out &amp; purges all memories)
@@ -336,9 +361,73 @@
               <option value="next_visit_summary">Summary on next visit only</option>
             </select>
           </label>
-          <div style="margin-top:8px; padding-top:8px; border-top:1px solid var(--border); display:flex; justify-content:space-between;">
+          <div style="margin-top:6px; padding-top:8px; border-top:1px solid var(--border); display:flex; justify-content:space-between;">
             <button class="danger" onclick="deleteAllMemories()">Delete All Memories</button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT COLUMN: Categorical Memory Representation -->
+    <div>
+      <!-- 1. Always-Injected Core Profile Block -->
+      <div class="panel">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h2>1. Injected Core Profile Block (Max ~300 tokens, Redis-cached)</h2>
+          <span class="badge" id="coreProfileMeta">v1</span>
+        </div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">
+          Always injected into Claude Haiku's system prompt from <strong>Profile</strong>, <strong>Teaching context</strong>, <strong>Preferences</strong>, and active <strong>Life areas</strong>.
+        </div>
+        <pre id="coreProfileText">(Empty — chat with Amal or click "Seed Sample Classroom Data")</pre>
+      </div>
+
+      <!-- 2. Dynamic Life Areas (Top-Level Evolving Categories, Cap of 8) -->
+      <div class="panel">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+          <div>
+            <h2>2. Dynamic Life Areas (Evolving Per-Teacher Categories, Cap 8 Active)</h2>
+            <div style="font-size:12px; color:var(--muted);">
+              Created automatically by Nightly Dreaming when &ge;5 memories across &ge;2 conversations form a new non-sensitive cluster, or created manually by the teacher.
+            </div>
+          </div>
+          <div style="display:flex; gap:6px;">
+            <input type="text" id="newLifeAreaEn" placeholder="New Life Area (EN)" style="width:140px;" />
+            <input type="text" id="newLifeAreaSw" placeholder="Jina (SW)" style="width:120px;" />
+            <button onclick="createLifeArea()">Create Life Area</button>
+          </div>
+        </div>
+        <div id="lifeAreasContainer" class="category-grid"></div>
+      </div>
+
+      <!-- 3. Protected Core Categories (The 10 Seeded Categories) -->
+      <div class="panel">
+        <h2>3. Protected Core Categories (10 Seeded Categories)</h2>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:8px;">
+          Grouped by category and subcategory. Sensitive categories (<strong>People</strong>, <strong>Wellbeing</strong>, <strong>Named learners</strong>) require explicit teacher consent before entering active memory.
+        </div>
+        <div id="coreCategoriesContainer" class="category-grid"></div>
+      </div>
+
+      <!-- 4. Bi-Temporal Superseded History & Notification Log -->
+      <div class="category-grid">
+        <div class="panel">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h2>4. Bi-Temporal Superseded History</h2>
+            <span class="badge" id="tombstoneBadge">Tombstones: 0</span>
+          </div>
+          <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">
+            Updated facts mark older rows <code>superseded</code> with <code>valid_to</code> and <code>retired_at</code>.
+          </div>
+          <div id="supersededContainer"></div>
+        </div>
+
+        <div class="panel">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h2>5. Memory Notification History</h2>
+            <span class="badge" id="unreadCountBadge">0 unread</span>
+          </div>
+          <div id="notificationListContainer" style="max-height: 240px; overflow-y: auto; margin-top:6px;"></div>
         </div>
       </div>
     </div>
@@ -346,6 +435,7 @@
 
   <script>
     let currentState = null;
+    let chatHistory = [];
 
     function getTeacherId() {
       return document.getElementById('teacherInput').value.trim() || 'teacher-wambui-ke';
@@ -369,7 +459,90 @@
     }
 
     function switchTeacher() {
+      chatHistory = [];
+      clearChatWindow();
       fetchState();
+    }
+
+    function clearChatWindow() {
+      chatHistory = [];
+      document.getElementById('chatMessages').innerHTML = `
+        <div class="msg assistant">Habari Mwalimu! I am Amal, your teaching assistant. Tell me about your class or ask for help planning a lesson — I will remember your classroom context automatically.</div>
+      `;
+    }
+
+    function fillAndSendChat(text) {
+      document.getElementById('chatInput').value = text;
+      sendChatMessage();
+    }
+
+    async function sendChatMessage() {
+      const inputEl = document.getElementById('chatInput');
+      const message = inputEl.value.trim();
+      if (!message) return;
+
+      inputEl.value = '';
+      const messagesContainer = document.getElementById('chatMessages');
+
+      // Render teacher bubble
+      const userDiv = document.createElement('div');
+      userDiv.className = 'msg user';
+      userDiv.textContent = message;
+      messagesContainer.appendChild(userDiv);
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+      // Temporary thinking indicator
+      const loadingDiv = document.createElement('div');
+      loadingDiv.className = 'msg assistant';
+      loadingDiv.textContent = 'Amal is thinking (retrieving memories & running Claude Haiku)...';
+      messagesContainer.appendChild(loadingDiv);
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+      const sessionApiKey = document.getElementById('sessionApiKey').value.trim();
+
+      try {
+        const res = await fetch('/api/chat/', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            teacher_id: getTeacherId(),
+            message: message,
+            history: chatHistory,
+            surface: 'web',
+            product_area: 'chat',
+            api_key: sessionApiKey
+          })
+        });
+        const data = await res.json();
+        chatHistory.push({role: 'user', content: message});
+        chatHistory.push({role: 'assistant', content: data.reply || ''});
+
+        const retrieved = (data.turn_context && data.turn_context.retrieved_memories) || [];
+        const extracted = data.extracted_candidates || [];
+        const liveResults = data.live_pass_results || [];
+
+        let metaHtml = `<div class="msg-meta">`;
+        metaHtml += `<div><strong>Chat LLM:</strong> ${escapeHtml(data.chat_model)} · <strong>Extractor LLM:</strong> ${escapeHtml(data.extraction_model)}</div>`;
+        if (retrieved.length > 0) {
+          metaHtml += `<div style="margin-top:3px;"><strong>Memories Retrieved (${retrieved.length}):</strong> ${retrieved.map(m => `<span class="badge">${escapeHtml(m.category_label)}: ${escapeHtml(m.statement)}</span>`).join(' ')}</div>`;
+        }
+        if (extracted.length > 0) {
+          metaHtml += `<div style="margin-top:3px;"><strong>Extracted from turn (${extracted.length}):</strong> ${extracted.map((c, idx) => {
+            const r = liveResults[idx] || {};
+            return `<span class="badge ${c.sensitivity === 'consent' ? 'consent' : 'normal'}">[${escapeHtml(c.category)}/${escapeHtml(c.subcategory)}] ${escapeHtml(c.statement)} &rarr; ${escapeHtml(r.status || 'processed')}</span>`;
+          }).join(' ')}</div>`;
+        }
+        metaHtml += `</div>`;
+
+        loadingDiv.innerHTML = `<div>${escapeHtml(data.reply)}</div>${metaHtml}`;
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+        if (data.state) {
+          renderState(data.state);
+        }
+      } catch (err) {
+        loadingDiv.textContent = 'Error communicating with Amal chat endpoint: ' + err;
+      }
     }
 
     function renderState(state) {
@@ -377,6 +550,15 @@
       const t = state.teacher;
       document.getElementById('teacherStatusBar').textContent =
         `Teacher: ${t.display_name} (${t.teacher_id}) · Country: ${t.country} · Cohort: ${t.cohort_key} · Curriculum: ${t.curriculum} · Last Dreamed: ${t.last_dreamed_at ? new Date(t.last_dreamed_at).toLocaleString() : 'Never'}`;
+
+      if (state.llm_status) {
+        const ls = state.llm_status;
+        const keyStatus = ls.api_key_configured
+          ? 'ANTHROPIC_API_KEY configured (.env active)'
+          : 'ANTHROPIC_API_KEY not set in .env (add to .env or paste above for live Claude Haiku API calls)';
+        document.getElementById('llmStatusBar').textContent =
+          `Chat Model: ${ls.chat_model} · Extraction Model: ${ls.extraction_model} · DB: ${ls.db_engine} · ${keyStatus}`;
+      }
 
       // Settings
       document.getElementById('settingEnabled').checked = state.settings.enabled;
@@ -513,7 +695,7 @@
             </div>
             <span class="badge">${la.memory_count} memories</span>
           </div>
-          <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;">
+          <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px;">
             <button onclick="promptRenameLifeArea('${la.id}', '${escapeHtml(la.label_en)}')">Rename</button>
             ${la.status === 'archived' ? `<button onclick="restoreLifeArea('${la.id}')">Restore</button>` : ''}
             <button class="danger" onclick="deleteLifeArea('${la.id}')">Delete Area</button>
@@ -542,7 +724,7 @@
               <span class="badge">${cat.memory_count}</span>
             </div>
           </div>
-          <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">${escapeHtml(cat.description)}</div>
+          <div style="font-size:11.5px; color:var(--muted); margin-bottom:5px;">${escapeHtml(cat.description)}</div>
           <div class="subcat-pills">
             Subcategories: ${cat.subcategories.map(s => `<span class="badge">${escapeHtml(s.label_en)}</span>`).join(' ')}
           </div>
@@ -556,7 +738,7 @@
     function renderSuperseded(items) {
       const el = document.getElementById('supersededContainer');
       if (!items || items.length === 0) {
-        el.innerHTML = '<div class="empty-note">No superseded memories yet. Edit a memory or update class size/grade to see bi-temporal supersession.</div>';
+        el.innerHTML = '<div class="empty-note">No superseded memories yet. Edit a memory or tell Amal a new class size/grade in chat to see bi-temporal supersession.</div>';
         return;
       }
       el.innerHTML = items.map(m => `
@@ -564,7 +746,7 @@
           <div><del>${escapeHtml(m.statement)}</del></div>
           <div class="memory-meta">
             <span>Slot: <code>${escapeHtml(m.slot)}</code></span>
-            <span>Retired at: ${m.retired_at ? new Date(m.retired_at).toLocaleTimeString() : ''}</span>
+            <span>Retired: ${m.retired_at ? new Date(m.retired_at).toLocaleTimeString() : ''}</span>
           </div>
         </div>
       `).join('');
@@ -615,47 +797,6 @@
       });
       const data = await res.json();
       renderState(data.state);
-      const dream = data.dream_run;
-      document.getElementById('livePassResultBox').innerHTML = `
-        <div style="padding:8px; background:#eff6ff; border:1px solid #93c5fd; border-radius:4px;">
-          <strong>Nightly Dreaming Completed:</strong><br/>
-          Consolidation: ${JSON.stringify(dream.consolidation_stats)}<br/>
-          Taxonomy Evolution: ${escapeHtml(dream.taxonomy_result.summary_en || 'No taxonomy changes triggered')}
-        </div>
-      `;
-    }
-
-    async function submitLivePass() {
-      const text = document.getElementById('liveInputText').value.trim();
-      if (!text) return;
-      const surface = document.getElementById('liveSurface').value;
-      const product_area = document.getElementById('liveArea').value;
-      const conversation_id = document.getElementById('liveConvId').value.trim() || 'conv-101';
-
-      const res = await fetch('/api/live-pass/', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          teacher_id: getTeacherId(),
-          message: text,
-          surface,
-          product_area,
-          conversation_id
-        })
-      });
-      const data = await res.json();
-      renderState(data.state);
-
-      if (data.command_result) {
-        document.getElementById('livePassResultBox').innerHTML = `
-          <pre>${escapeHtml(data.command_result.reply)}</pre>
-        `;
-      } else if (data.live_pass) {
-        document.getElementById('livePassResultBox').innerHTML = `
-          <pre>${escapeHtml(JSON.stringify(data.live_pass.results, null, 2))}</pre>
-        `;
-      }
-      document.getElementById('liveInputText').value = '';
     }
 
     async function runHybridRetrieval() {

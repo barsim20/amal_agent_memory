@@ -1,9 +1,22 @@
+# Environment & Credentials (NEVER commit secrets)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+secrets.json
+.supabase/
+
+# Python & Virtualenv
 __pycache__/
 *.py[cod]
 *$py.class
 .venv/
 venv/
 env/
+
+# Local Databases & Caches
 *.sqlite3
 db.sqlite3
 .pytest_cache/
