@@ -1,0 +1,642 @@
+"""
+REST API views, Consent & Taxonomy endpoints, Admin Inspector, and Simple Categorical Web UI
+for Amal Memory and Dreaming.
+"""
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.shortcuts import render
+from django.utils import timezone
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
+
+from .constants import CORE_CATEGORIES
+from .models import (
+    AggregateInsight,
+    ConsentRequest,
+    MemoryCategory,
+    MemoryCategoryLink,
+    MemoryEvent,
+    MemoryItem,
+    MemoryNotification,
+    MemoryTombstone,
+    TaxonomyChangeset,
+)
+from .retrieval import (
+    assemble_turn_context,
+    handle_whatsapp_memory_command,
+    hybrid_search,
+)
+from .services import (
+    compute_undo_quality_metrics,
+    delete_all_memories,
+    delete_memory,
+    edit_memory,
+    get_or_create_teacher,
+    regenerate_core_profile,
+    resolve_consent_request,
+    save_or_update_memory,
+    seed_core_categories,
+    set_memory_opt_out,
+)
+from .tasks import (
+    run_live_memory_pass,
+    run_nightly_dream_for_teacher,
+)
+from .taxonomy import (
+    apply_taxonomy_changeset,
+    teacher_manage_life_area,
+    undo_taxonomy_changeset,
+)
+
+
+def _parse_body(request: HttpRequest) -> dict[str, Any]:
+    if not request.body:
+        return {}
+    try:
+        return json.loads(request.body.decode("utf-8"))
+    except json.JSONDecodeError:
+        return {}
+
+
+def _get_teacher_id(request: HttpRequest, body: dict[str, Any] | None = None) -> str:
+    if body and body.get("teacher_id"):
+        return str(body["teacher_id"])
+    return getattr(request, "teacher_id", None) or request.GET.get("teacher_id") or "teacher-wambui-ke"
+
+
+def build_categorical_state(teacher_id: str) -> dict[str, Any]:
+    """
+    Assemble the complete categorical representation of a teacher's memory state:
+    - Core Profile summary & metadata
+    - All 10 Protected Core Categories (with subcategories and active memories)
+    - Dynamic Life Areas (active and archived)
+    - Pending Consent queue (`pending_consent` items + ConsentRequest IDs)
+    - Web Notifications (realtime banner, since-last-visit cards, taxonomy cards)
+    - Superseded history & tombstone count
+    - Settings & quality metrics
+    """
+    teacher = get_or_create_teacher(teacher_id)
+    core_map = seed_core_categories()
+    profile = getattr(teacher, "core_profile", None) or regenerate_core_profile(teacher)
+    settings_obj = teacher.settings
+
+    active_links = (
+        MemoryCategoryLink.objects.filter(
+            memory__teacher=teacher,
+            memory__status="active",
+            valid_to__isnull=True,
+        )
+        .select_related("memory", "category", "subcategory")
+        .prefetch_related("memory__evidence")
+        .order_by("-memory__recorded_at")
+    )
+
+    links_by_cat: dict[str, list[dict[str, Any]]] = {}
+    for link in active_links:
+        mem = link.memory
+        ev = mem.evidence.first()
+        links_by_cat.setdefault(str(link.category_id), []).append(
+            {
+                "id": str(mem.id),
+                "statement": mem.statement,
+                "slot": mem.slot,
+                "lang": mem.lang,
+                "source": mem.source,
+                "sensitivity": mem.sensitivity,
+                "confidence": round(mem.confidence, 2),
+                "salience": round(mem.salience, 2),
+                "subcategory_id": str(link.subcategory_id) if link.subcategory_id else None,
+                "subcategory_slug": link.subcategory.slug if link.subcategory else "general",
+                "subcategory_label_en": link.subcategory.label_en if link.subcategory else "General",
+                "subcategory_label_sw": link.subcategory.label_sw if link.subcategory else "Jumla",
+                "surface": ev.surface if ev else "web",
+                "product_area": ev.product_area if ev else "chat",
+                "conversation_id": ev.conversation_id if ev else "",
+                "created_by": mem.created_by,
+                "valid_from": mem.valid_from.isoformat() if mem.valid_from else None,
+                "recorded_at": mem.recorded_at.isoformat() if mem.recorded_at else None,
+            }
+        )
+
+    # 1. Protected Core Categories (all 10 always represented)
+    core_categories_out: list[dict[str, Any]] = []
+    for cat_seed in CORE_CATEGORIES:
+        cat_obj = core_map[cat_seed["slug"]]
+        subcats = list(
+            MemoryCategory.objects.filter(parent=cat_obj, status="active")
+            .order_by("created_at")
+            .values("id", "slug", "label_en", "label_sw")
+        )
+        for s in subcats:
+            s["id"] = str(s["id"])
+        cat_memories = links_by_cat.get(str(cat_obj.id), [])
+        core_categories_out.append(
+            {
+                "id": str(cat_obj.id),
+                "slug": cat_obj.slug,
+                "label_en": cat_obj.label_en,
+                "label_sw": cat_obj.label_sw,
+                "description": cat_seed["description"],
+                "sensitivity": cat_obj.sensitivity,
+                "is_protected": True,
+                "frozen_until": cat_obj.frozen_until.isoformat() if cat_obj.frozen_until else None,
+                "subcategories": subcats,
+                "memories": cat_memories,
+                "memory_count": len(cat_memories),
+            }
+        )
+
+    # 2. Dynamic Life Areas for this teacher
+    life_area_objs = MemoryCategory.objects.filter(
+        teacher=teacher,
+        kind="life_area",
+    ).exclude(status="merged").order_by("-status", "created_at")
+
+    life_areas_out: list[dict[str, Any]] = []
+    for la in life_area_objs:
+        subcats = list(
+            MemoryCategory.objects.filter(parent=la, status="active")
+            .order_by("created_at")
+            .values("id", "slug", "label_en", "label_sw")
+        )
+        for s in subcats:
+            s["id"] = str(s["id"])
+        la_memories = links_by_cat.get(str(la.id), [])
+        life_areas_out.append(
+            {
+                "id": str(la.id),
+                "slug": la.slug,
+                "label_en": la.label_en,
+                "label_sw": la.label_sw,
+                "status": la.status,
+                "created_by": la.created_by,
+                "frozen_until": la.frozen_until.isoformat() if la.frozen_until else None,
+                "subcategories": subcats,
+                "memories": la_memories,
+                "memory_count": len(la_memories),
+            }
+        )
+
+    # 3. Pending Consent queue (never in active retrieval)
+    pending_consents_qs = (
+        ConsentRequest.objects.filter(teacher=teacher, answer="pending")
+        .select_related("memory")
+        .order_by("-asked_at")
+    )
+    pending_consents_out: list[dict[str, Any]] = []
+    for req in pending_consents_qs:
+        if not req.memory:
+            continue
+        lnk = MemoryCategoryLink.objects.filter(memory=req.memory).select_related("category", "subcategory").first()
+        pending_consents_out.append(
+            {
+                "consent_id": str(req.id),
+                "memory_id": str(req.memory.id),
+                "statement": req.memory.statement,
+                "prompt_text": req.prompt_text,
+                "slot": req.slot,
+                "category_slug": lnk.category.slug if lnk else "people",
+                "category_label": lnk.category.label_en if lnk else "People",
+                "subcategory_label": lnk.subcategory.label_en if (lnk and lnk.subcategory) else "",
+                "channel": req.channel,
+                "asked_at": req.asked_at.isoformat(),
+                "expires_at": req.expires_at.isoformat(),
+            }
+        )
+
+    # 4. Notifications (banners, external WhatsApp/dreaming saves, taxonomy cards)
+    notifs_qs = (
+        MemoryNotification.objects.filter(teacher=teacher)
+        .select_related("memory", "changeset")
+        .order_by("-created_at")[:30]
+    )
+    notifications_out: list[dict[str, Any]] = []
+    for n in notifs_qs:
+        notifications_out.append(
+            {
+                "id": str(n.id),
+                "kind": n.kind,
+                "title": n.title,
+                "body": n.body,
+                "diff_before": n.diff_before,
+                "diff_after": n.diff_after,
+                "category_slug": n.category_slug,
+                "origin_surface": n.origin_surface,
+                "grouped_count": n.grouped_count,
+                "memory_id": str(n.memory_id) if n.memory_id else None,
+                "changeset_id": str(n.changeset_id) if n.changeset_id else None,
+                "changeset_status": n.changeset.status if n.changeset else None,
+                "action": n.action,
+                "seen_at": n.seen_at.isoformat() if n.seen_at else None,
+                "created_at": n.created_at.isoformat(),
+            }
+        )
+
+    # 5. Superseded bi-temporal history
+    superseded_qs = MemoryItem.objects.filter(teacher=teacher, status="superseded").order_by("-retired_at")[:15]
+    superseded_out = [
+        {
+            "id": str(m.id),
+            "statement": m.statement,
+            "slot": m.slot,
+            "valid_from": m.valid_from.isoformat() if m.valid_from else None,
+            "valid_to": m.valid_to.isoformat() if m.valid_to else None,
+            "retired_at": m.retired_at.isoformat() if m.retired_at else None,
+            "superseded_by_id": str(m.superseded_by_id) if m.superseded_by_id else None,
+        }
+        for m in superseded_qs
+    ]
+
+    # 6. Taxonomy changesets
+    changesets_qs = TaxonomyChangeset.objects.filter(teacher=teacher).prefetch_related("operations")[:10]
+    changesets_out = [
+        {
+            "id": str(cs.id),
+            "status": cs.status,
+            "summary_en": cs.summary_en,
+            "summary_sw": cs.summary_sw,
+            "operations": [
+                {
+                    "op_type": op.op_type,
+                    "before_state": op.before_state,
+                    "after_state": op.after_state,
+                }
+                for op in cs.operations.all()
+            ],
+            "created_at": cs.created_at.isoformat(),
+        }
+        for cs in changesets_qs
+    ]
+
+    return {
+        "teacher": {
+            "teacher_id": teacher.teacher_id,
+            "display_name": teacher.display_name,
+            "country": teacher.country,
+            "cohort_key": teacher.cohort_key,
+            "curriculum": teacher.curriculum,
+            "preferred_lang": teacher.preferred_lang,
+            "last_active_at": teacher.last_active_at.isoformat() if teacher.last_active_at else None,
+            "last_dreamed_at": teacher.last_dreamed_at.isoformat() if teacher.last_dreamed_at else None,
+        },
+        "settings": {
+            "enabled": settings_obj.enabled,
+            "share_aggregate": settings_obj.share_aggregate,
+            "sensitive_mode": settings_obj.sensitive_mode,
+            "banner_mode": settings_obj.banner_mode,
+        },
+        "core_profile": {
+            "summary": profile.summary,
+            "version": profile.version,
+            "built_from_count": len(profile.built_from or []),
+        },
+        "core_categories": core_categories_out,
+        "life_areas": life_areas_out,
+        "pending_consents": pending_consents_out,
+        "notifications": notifications_out,
+        "unread_notification_count": sum(1 for n in notifications_out if n["action"] == "pending" and not n["seen_at"]),
+        "superseded_history": superseded_out,
+        "taxonomy_changesets": changesets_out,
+        "tombstone_count": MemoryTombstone.objects.filter(teacher=teacher).count(),
+        "quality_metrics": compute_undo_quality_metrics(),
+    }
+
+
+def dashboard_view(request: HttpRequest) -> HttpResponse:
+    """Render the simple, functional Amal Web categorical memory interface."""
+    teacher_id = _get_teacher_id(request)
+    get_or_create_teacher(teacher_id)
+    return render(request, "memory/dashboard.html", {"teacher_id": teacher_id})
+
+
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+def api_memories(request: HttpRequest) -> JsonResponse:
+    if request.method == "GET":
+        teacher_id = _get_teacher_id(request)
+        return JsonResponse(build_categorical_state(teacher_id))
+
+    body = _parse_body(request)
+    teacher_id = _get_teacher_id(request, body)
+    result = save_or_update_memory(
+        teacher_id=teacher_id,
+        statement=body.get("statement", ""),
+        category_slug=body.get("category_slug"),
+        subcategory_slug=body.get("subcategory_slug"),
+        source=body.get("source", "stated"),
+        surface=body.get("surface", "web"),
+        product_area=body.get("product_area", "chat"),
+        conversation_id=body.get("conversation_id", "conv-web"),
+        created_by=body.get("created_by", "teacher"),
+        explicit_consent_granted=bool(body.get("explicit_consent_granted", False)),
+    )
+    return JsonResponse({"result": result, "state": build_categorical_state(teacher_id)})
+
+
+@csrf_exempt
+@require_http_methods(["PATCH", "PUT", "DELETE"])
+def api_memory_detail(request: HttpRequest, memory_id: str) -> JsonResponse:
+    body = _parse_body(request)
+    teacher_id = _get_teacher_id(request, body)
+    if request.method in ("PATCH", "PUT"):
+        new_statement = body.get("statement", "")
+        result = edit_memory(teacher_id=teacher_id, memory_id=memory_id, new_statement=new_statement, actor="teacher")
+        return JsonResponse({"result": result, "state": build_categorical_state(teacher_id)})
+
+    is_undo = request.GET.get("undo", "false").lower() == "true" or bool(body.get("undo"))
+    result = delete_memory(
+        teacher_id=teacher_id,
+        memory_id=memory_id,
+        actor="teacher",
+        record_tombstone=True,
+        is_undo=is_undo,
+    )
+    return JsonResponse({"result": result, "state": build_categorical_state(teacher_id)})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_delete_all(request: HttpRequest) -> JsonResponse:
+    body = _parse_body(request)
+    teacher_id = _get_teacher_id(request, body)
+    result = delete_all_memories(teacher_id=teacher_id, actor="teacher")
+    return JsonResponse({"result": result, "state": build_categorical_state(teacher_id)})
+
+
+@require_http_methods(["GET"])
+def api_export_memories(request: HttpRequest) -> HttpResponse:
+    teacher_id = _get_teacher_id(request)
+    state = build_categorical_state(teacher_id)
+    payload = json.dumps(state, indent=2)
+    response = HttpResponse(payload, content_type="application/json")
+    response["Content-Disposition"] = f'attachment; filename="amal_memories_{teacher_id}.json"'
+    return response
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_resolve_consent(request: HttpRequest, consent_id: str) -> JsonResponse:
+    body = _parse_body(request)
+    teacher_id = _get_teacher_id(request, body)
+    answer = body.get("answer", "no")
+    result = resolve_consent_request(teacher_id=teacher_id, consent_request_id=consent_id, answer=answer)
+    return JsonResponse({"result": result, "state": build_categorical_state(teacher_id)})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_notification_action(request: HttpRequest, notification_id: str) -> JsonResponse:
+    body = _parse_body(request)
+    teacher_id = _get_teacher_id(request, body)
+    action = body.get("action", "kept")
+    teacher = get_or_create_teacher(teacher_id)
+    notif = MemoryNotification.objects.filter(id=notification_id, teacher=teacher).first()
+    if not notif:
+        return JsonResponse({"ok": False, "reason": "not_found"}, status=404)
+
+    now = timezone.now()
+    if action in ("undo", "undone", "remove", "removed"):
+        if notif.changeset_id:
+            undo_taxonomy_changeset(teacher_id, str(notif.changeset_id))
+        elif notif.memory_id:
+            delete_memory(
+                teacher_id=teacher_id,
+                memory_id=str(notif.memory_id),
+                actor="teacher",
+                record_tombstone=True,
+                is_undo=(action in ("undo", "undone")),
+            )
+        notif.action = "undone" if action in ("undo", "undone") else "removed"
+        notif.seen_at = now
+        notif.save(update_fields=["action", "seen_at"])
+    else:
+        notif.action = "kept"
+        notif.seen_at = now
+        notif.save(update_fields=["action", "seen_at"])
+
+    return JsonResponse({"ok": True, "state": build_categorical_state(teacher_id)})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_live_pass(request: HttpRequest) -> JsonResponse:
+    body = _parse_body(request)
+    teacher_id = _get_teacher_id(request, body)
+    surface = body.get("surface", "whatsapp")
+    product_area = body.get("product_area", "chat")
+    conversation_id = body.get("conversation_id", f"conv-{int(timezone.now().timestamp())}")
+    message_id = body.get("message_id", f"msg-{int(timezone.now().timestamp() * 1000)}")
+
+    raw_message = (body.get("message") or "").strip()
+    if raw_message:
+        cmd_res = handle_whatsapp_memory_command(teacher_id, raw_message)
+        if cmd_res.get("handled"):
+            return JsonResponse({"command_result": cmd_res, "state": build_categorical_state(teacher_id)})
+
+    reflection_items = body.get("reflection_items") or ([raw_message] if raw_message else [])
+    task_out = run_live_memory_pass.delay(
+        teacher_id=teacher_id,
+        reflection_items=reflection_items,
+        surface=surface,
+        product_area=product_area,
+        conversation_id=conversation_id,
+        message_id=message_id,
+    )
+    res_data = task_out.get() if hasattr(task_out, "get") else task_out
+    return JsonResponse({"live_pass": res_data, "state": build_categorical_state(teacher_id)})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_dream_run(request: HttpRequest) -> JsonResponse:
+    body = _parse_body(request)
+    teacher_id = _get_teacher_id(request, body)
+    transcripts = body.get("session_transcripts") or []
+    taxonomy_stage = body.get("taxonomy_stage")
+    task_out = run_nightly_dream_for_teacher.delay(
+        teacher_id=teacher_id,
+        session_transcripts=transcripts,
+        taxonomy_stage=taxonomy_stage,
+    )
+    res_data = task_out.get() if hasattr(task_out, "get") else task_out
+    return JsonResponse({"dream_run": res_data, "state": build_categorical_state(teacher_id)})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_retrieve_context(request: HttpRequest) -> JsonResponse:
+    body = _parse_body(request)
+    teacher_id = _get_teacher_id(request, body)
+    query = body.get("query", "")
+    surface = body.get("surface", "web")
+    product_area = body.get("product_area", "chat")
+    context = assemble_turn_context(
+        teacher_id=teacher_id,
+        user_message=query,
+        surface=surface,
+        product_area=product_area,
+    )
+    return JsonResponse({"context": context})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_taxonomy_undo(request: HttpRequest, changeset_id: str) -> JsonResponse:
+    body = _parse_body(request)
+    teacher_id = _get_teacher_id(request, body)
+    result = undo_taxonomy_changeset(teacher_id=teacher_id, changeset_id=changeset_id)
+    return JsonResponse({"result": result, "state": build_categorical_state(teacher_id)})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_taxonomy_apply(request: HttpRequest, changeset_id: str) -> JsonResponse:
+    body = _parse_body(request)
+    teacher_id = _get_teacher_id(request, body)
+    result = apply_taxonomy_changeset(changeset_id=changeset_id)
+    return JsonResponse({"result": result, "state": build_categorical_state(teacher_id)})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_life_areas(request: HttpRequest) -> JsonResponse:
+    body = _parse_body(request)
+    teacher_id = _get_teacher_id(request, body)
+    result = teacher_manage_life_area(
+        teacher_id=teacher_id,
+        action=body.get("action", "create"),
+        label_en=body.get("label_en", ""),
+        label_sw=body.get("label_sw", ""),
+        category_id=body.get("category_id"),
+        target_category_id=body.get("target_category_id"),
+    )
+    return JsonResponse({"result": result, "state": build_categorical_state(teacher_id)})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_settings(request: HttpRequest) -> JsonResponse:
+    body = _parse_body(request)
+    teacher_id = _get_teacher_id(request, body)
+    teacher = get_or_create_teacher(teacher_id)
+    settings_obj = teacher.settings
+
+    if "enabled" in body and bool(body["enabled"]) != settings_obj.enabled:
+        set_memory_opt_out(teacher_id, enabled=bool(body["enabled"]))
+        settings_obj.refresh_from_db()
+
+    if "share_aggregate" in body:
+        settings_obj.share_aggregate = bool(body["share_aggregate"])
+    if "sensitive_mode" in body and body["sensitive_mode"] in ("always_ask", "never_remember"):
+        settings_obj.sensitive_mode = body["sensitive_mode"]
+    if "banner_mode" in body and body["banner_mode"] in ("realtime", "next_visit_summary"):
+        settings_obj.banner_mode = body["banner_mode"]
+    settings_obj.save()
+
+    return JsonResponse({"state": build_categorical_state(teacher_id)})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_seed_demo(request: HttpRequest) -> JsonResponse:
+    """
+    Seed realistic Kenyan teacher memories across the protected core categories,
+    a pending sensitive consent item, and 5 Master's degree memories across 2 conversations
+    so the user can immediately inspect the categorical representation and trigger Nightly Dreaming.
+    """
+    body = _parse_body(request)
+    teacher_id = _get_teacher_id(request, body)
+    teacher = get_or_create_teacher(
+        teacher_id=teacher_id,
+        display_name="Mwalimu Wambui (Kisumu Primary)",
+        country="KE",
+        cohort_key="kisumu-cohort-1",
+        curriculum="CBC",
+        preferred_lang="en",
+    )
+
+    sample_memories = [
+        ("Teaches at a public primary school in Kisumu County", "profile", "school", "stated", "whatsapp", "conv-1"),
+        ("Teaches Grade 6 Mathematics and Science, CBC", "teaching_context", "subjects", "stated", "whatsapp", "conv-1"),
+        ("Around 60 learners per class", "teaching_context", "class_size", "stated", "whatsapp", "conv-1"),
+        ("No projector in classroom; uses chalkboard and manila charts", "classroom", "resources", "stated", "web", "conv-2"),
+        ("Group work in Science went well; wants to try peer assessment", "practice", "what_worked", "stated", "web", "conv-2"),
+        ("Completed Foundations of AI Level 1, Module 3", "learning_journey", "modules", "observed", "web", "conv-2"),
+        ("Preparing Term 2 scheme of work for Grade 6 Maths", "ongoing_work", "active_projects", "stated", "web", "conv-2"),
+        ("Prefers Kiswahili and English mix, short answers, bullet-point plans", "preferences", "format", "stated", "whatsapp", "conv-1"),
+        # Sensitive memory -> goes to pending_consent queue
+        ("Co-plans with her colleague Wanjiru", "people", "colleagues", "stated", "whatsapp", "conv-3"),
+        # 5 memories across 2 conversations about Master's degree -> triggers New Life Area when Nightly Dreaming runs
+        ("Enrolled in a Master's degree in Education Leadership at university", "profile", "identity", "stated", "whatsapp", "conv-m1"),
+        ("Writing postgraduate master's thesis proposal on rural school leadership", "profile", "identity", "stated", "whatsapp", "conv-m1"),
+        ("Taking university semester coursework in research methods for Master's degree", "profile", "identity", "stated", "whatsapp", "conv-m1"),
+        ("Meeting university thesis supervisor on Friday for Master's dissertation", "profile", "identity", "stated", "web", "conv-m2"),
+        ("Collecting postgraduate research survey data for Master's degree thesis", "profile", "identity", "stated", "web", "conv-m2"),
+    ]
+
+    for idx, (stmt, cat, sub, src, surf, conv_id) in enumerate(sample_memories):
+        save_or_update_memory(
+            teacher_id=teacher.teacher_id,
+            statement=stmt,
+            category_slug=cat,
+            subcategory_slug=sub,
+            source=src,
+            surface=surf,
+            conversation_id=conv_id,
+            message_id=f"seed-msg-{idx}",
+            created_by="live_pass",
+        )
+
+    return JsonResponse({"seeded": True, "state": build_categorical_state(teacher_id)})
+
+
+@require_http_methods(["GET"])
+def api_admin_inspect(request: HttpRequest) -> JsonResponse:
+    """
+    Admin memory inspector (engine.amal.education):
+    Support staff access to a teacher's memories is logged and requires an explicit reason
+    (PRD lines 293 & 324).
+    """
+    teacher_id = _get_teacher_id(request)
+    reason = (request.GET.get("reason") or "").strip()
+    admin_actor = (request.GET.get("admin_user") or "support@amal.education").strip()
+    if not reason:
+        return JsonResponse(
+            {"error": "Support access to teacher memories requires an explicit audit 'reason' parameter."},
+            status=400,
+        )
+
+    teacher = get_or_create_teacher(teacher_id)
+    MemoryEvent.objects.create(
+        teacher=teacher,
+        event="admin.inspected",
+        actor=admin_actor,
+        payload={"reason": reason},
+    )
+
+    state = build_categorical_state(teacher_id)
+    audit_events = list(
+        MemoryEvent.objects.filter(teacher=teacher)
+        .values("id", "event", "actor", "memory_id_ref", "payload", "created_at")[:25]
+    )
+    for ev in audit_events:
+        ev["id"] = str(ev["id"])
+        ev["created_at"] = ev["created_at"].isoformat()
+
+    insights = list(
+        AggregateInsight.objects.all().values("scope", "scope_key", "statement", "n_teachers")[:20]
+    )
+    return JsonResponse(
+        {
+            "inspected_teacher_id": teacher_id,
+            "audit_logged": True,
+            "reason": reason,
+            "state": state,
+            "audit_events": audit_events,
+            "aggregate_insights": insights,
+        }
+    )

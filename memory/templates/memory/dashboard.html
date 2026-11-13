@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Amal Memory &amp; Dreaming — What Amal Remembers</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --border: #cbd5e1;
+      --text: #0f172a;
+      --muted: #475569;
+      --primary: #0f766e;
+      --primary-light: #f0fdfa;
+      --warn-bg: #fffbeb;
+      --warn-border: #f59e0b;
+      --danger: #b91c1c;
+      --danger-bg: #fef2f2;
+      --info-bg: #eff6ff;
+      --info-border: #3b82f6;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 16px 24px 48px;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+      font-size: 14px;
+    }
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding-bottom: 12px;
+      border-bottom: 2px solid var(--border);
+      margin-bottom: 16px;
+    }
+    h1 { margin: 0; font-size: 20px; }
+    h2 { margin: 0 0 8px; font-size: 16px; }
+    h3 { margin: 0 0 6px; font-size: 14px; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    button, .btn {
+      padding: 6px 12px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      border-radius: 4px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    button:hover, .btn:hover { background: #f1f5f9; }
+    button.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+    button.primary:hover { opacity: 0.92; }
+    button.danger { color: var(--danger); border-color: #fca5a5; background: var(--danger-bg); }
+    input[type="text"], textarea, select {
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 13px;
+      font-family: inherit;
+    }
+    .grid-layout {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 18px;
+      align-items: start;
+    }
+    @media (max-width: 960px) {
+      .grid-layout { grid-template-columns: 1fr; }
+    }
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+    .banner {
+      background: var(--primary-light);
+      border: 1px solid var(--primary);
+      border-radius: 6px;
+      padding: 10px 14px;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+    .consent-card {
+      background: var(--warn-bg);
+      border: 1px solid var(--warn-border);
+      border-radius: 6px;
+      padding: 12px 14px;
+      margin-bottom: 10px;
+    }
+    .taxonomy-card {
+      background: var(--info-bg);
+      border: 1px solid var(--info-border);
+      border-radius: 6px;
+      padding: 12px 14px;
+      margin-bottom: 10px;
+    }
+    .category-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 12px;
+    }
+    .category-box {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px;
+      background: var(--surface);
+    }
+    .category-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      border-bottom: 1px solid #e2e8f0;
+      padding-bottom: 6px;
+      margin-bottom: 8px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 11px;
+      font-weight: 600;
+      background: #e2e8f0;
+      color: #1e293b;
+      margin-right: 4px;
+    }
+    .badge.consent { background: #fef3c7; color: #92400e; }
+    .badge.normal { background: #dcfce7; color: #166534; }
+    .badge.life-area { background: #dbeafe; color: #1e40af; }
+    .memory-row {
+      border: 1px solid #e2e8f0;
+      border-radius: 4px;
+      padding: 8px 10px;
+      margin-bottom: 8px;
+      background: #f8fafc;
+    }
+    .memory-meta {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 4px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .memory-actions { display: flex; gap: 6px; }
+    pre {
+      background: #0f172a;
+      color: #f8fafc;
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      margin: 6px 0 0;
+    }
+    .subcat-pills {
+      margin-bottom: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .empty-note {
+      color: var(--muted);
+      font-style: italic;
+      font-size: 12px;
+    }
+    .status-bar {
+      font-size: 12px;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>What Amal Remembers (Amal Memory &amp; Dreaming)</h1>
+      <div class="status-bar" id="teacherStatusBar">Loading teacher profile...</div>
+    </div>
+    <div class="toolbar">
+      <label for="teacherInput"><strong>Teacher ID:</strong></label>
+      <input type="text" id="teacherInput" value="{{ teacher_id }}" style="width: 170px;" />
+      <button onclick="switchTeacher()">Load Teacher</button>
+      <button class="primary" onclick="seedDemoData()">Seed Sample Classroom Data</button>
+      <button onclick="runNightlyDream()">Run Nightly Dreaming &amp; Taxonomy Evolution</button>
+      <a class="btn" id="exportBtn" href="/api/memories/export/?teacher_id={{ teacher_id }}">Export JSON</a>
+    </div>
+  </header>
+
+  <!-- Live Save / Update Notification Banners (Max 1 per 60s, grouped) -->
+  <div id="liveBannerContainer"></div>
+
+  <!-- Pending Sensitive Memory Consent Queue -->
+  <div id="consentQueueContainer"></div>
+
+  <!-- Nightly Taxonomy Reorganization Cards -->
+  <div id="taxonomyCardsContainer"></div>
+
+  <div class="grid-layout">
+    <!-- LEFT COLUMN: Categorical Memory Representation -->
+    <div>
+      <!-- 1. Always-Injected Core Profile Block -->
+      <div class="panel">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h2>1. Injected Core Profile Block (Max ~300 tokens, Redis-cached)</h2>
+          <span class="badge" id="coreProfileMeta">v1</span>
+        </div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">
+          Built automatically from <strong>Profile</strong>, <strong>Teaching context</strong>, <strong>Preferences</strong>, and active <strong>Life areas</strong>.
+        </div>
+        <pre id="coreProfileText">(Empty — seed sample data or add memories below)</pre>
+      </div>
+
+      <!-- 2. Dynamic Life Areas (Top-Level Evolving Categories, Cap of 8) -->
+      <div class="panel">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+          <div>
+            <h2>2. Dynamic Life Areas (Evolving Per-Teacher Categories, Cap 8 Active)</h2>
+            <div style="font-size:12px; color:var(--muted);">
+              Created automatically by Nightly Dreaming when &ge;5 memories across &ge;2 conversations form a new non-sensitive cluster, or created manually by the teacher.
+            </div>
+          </div>
+          <div style="display:flex; gap:6px;">
+            <input type="text" id="newLifeAreaEn" placeholder="New Life Area name (EN)" />
+            <input type="text" id="newLifeAreaSw" placeholder="Jina la Eneo (SW)" />
+            <button onclick="createLifeArea()">Create Life Area</button>
+          </div>
+        </div>
+        <div id="lifeAreasContainer" class="category-grid"></div>
+      </div>
+
+      <!-- 3. Protected Core Categories (The 10 Seeded Categories) -->
+      <div class="panel">
+        <h2>3. Protected Core Categories (10 Seeded Categories)</h2>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">
+          Protected core categories are never deleted, merged, or renamed by dreaming. Sensitive categories (<strong>People</strong>, <strong>Wellbeing</strong>, <strong>Named learners</strong>) require explicit teacher consent.
+        </div>
+        <div id="coreCategoriesContainer" class="category-grid"></div>
+      </div>
+
+      <!-- 4. Bi-Temporal Superseded History & Tombstones -->
+      <div class="panel">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h2>4. Bi-Temporal Superseded History &amp; HMAC Tombstones</h2>
+          <span class="badge" id="tombstoneBadge">Tombstones: 0</span>
+        </div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:8px;">
+          Corrections never overwrite in place: old facts become <code>superseded</code> with <code>valid_to</code> and <code>retired_at</code>. Teacher deletions are hard deletes with keyed HMAC tombstones.
+        </div>
+        <div id="supersededContainer"></div>
+      </div>
+    </div>
+
+    <!-- RIGHT COLUMN: Functional Simulators, Notifications & Controls -->
+    <div>
+      <!-- A. Live Pass & WhatsApp / Reflection Simulator -->
+      <div class="panel">
+        <h2>A. Live Pass &amp; Conversation Input</h2>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:8px;">
+          Simulate a teacher statement, reflection output, or WhatsApp command (e.g. <em>"What do you remember about me?"</em>, <em>"Forget that I teach Grade 6"</em>, <em>"Stop remembering"</em>).
+        </div>
+        <textarea id="liveInputText" rows="3" style="width:100%; margin-bottom:8px;" placeholder="e.g. I teach 65 learners per class now."></textarea>
+        <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;">
+          <select id="liveSurface">
+            <option value="web">Surface: Amal Web</option>
+            <option value="whatsapp">Surface: WhatsApp</option>
+          </select>
+          <select id="liveArea">
+            <option value="chat">Area: Assistant Chat</option>
+            <option value="tools">Area: Amal Tools</option>
+            <option value="academy">Area: Amal Academy</option>
+          </select>
+          <input type="text" id="liveConvId" value="conv-101" style="width:100px;" title="Conversation ID" />
+          <button class="primary" onclick="submitLivePass()">Run Live Pass</button>
+        </div>
+        <div id="livePassResultBox" style="font-size:12px;"></div>
+      </div>
+
+      <!-- B. Hybrid Search & Per-Turn Context Assembly -->
+      <div class="panel">
+        <h2>B. Hybrid Retrieval &amp; Turn Context (RRF k=60)</h2>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:8px;">
+          Fuses exact cosine similarity (<code>halfvec(1024)</code>), un-stemmed <code>simple</code> FTS, and <code>pg_trgm</code> similarity. Trivial greetings skip retrieval.
+        </div>
+        <div style="display:flex; gap:6px; margin-bottom:8px;">
+          <input type="text" id="retrieveQuery" style="flex:1;" placeholder="e.g. Help me create a Grade 6 Hisabati lesson plan" value="Help me create a Grade 6 Hisabati lesson plan" />
+          <button class="primary" onclick="runHybridRetrieval()">Test Retrieval</button>
+        </div>
+        <div id="retrievalResultBox"></div>
+      </div>
+
+      <!-- C. Notification Feed (30-day history & Since Last Visit) -->
+      <div class="panel">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h2>C. Memory Notification List</h2>
+          <span class="badge" id="unreadCountBadge">0 unread</span>
+        </div>
+        <div id="notificationListContainer" style="max-height: 280px; overflow-y: auto; margin-top:8px;"></div>
+      </div>
+
+      <!-- D. Teacher Controls & Settings -->
+      <div class="panel">
+        <h2>D. Teacher Memory Controls &amp; Settings</h2>
+        <div style="display:flex; flex-direction:column; gap:8px; margin-top:8px;">
+          <label>
+            <input type="checkbox" id="settingEnabled" onchange="saveSettings()" />
+            <strong>Memory Enabled</strong> (Unchecking opts out &amp; purges all memories)
+          </label>
+          <label>
+            <input type="checkbox" id="settingShareAggregate" onchange="saveSettings()" />
+            <strong>Share in Anonymized Cohort &amp; Global Insights</strong> (k&ge;10 / k&ge;50)
+          </label>
+          <label>
+            <strong>Sensitive Memory Mode:</strong><br/>
+            <select id="settingSensitiveMode" onchange="saveSettings()" style="width:100%; margin-top:4px;">
+              <option value="always_ask">Always ask me before saving personal things</option>
+              <option value="never_remember">Never remember personal things</option>
+            </select>
+          </label>
+          <label>
+            <strong>Web Notification Banner Mode:</strong><br/>
+            <select id="settingBannerMode" onchange="saveSettings()" style="width:100%; margin-top:4px;">
+              <option value="realtime">Show banner during web sessions (default)</option>
+              <option value="next_visit_summary">Summary on next visit only</option>
+            </select>
+          </label>
+          <div style="margin-top:8px; padding-top:8px; border-top:1px solid var(--border); display:flex; justify-content:space-between;">
+            <button class="danger" onclick="deleteAllMemories()">Delete All Memories</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentState = null;
+
+    function getTeacherId() {
+      return document.getElementById('teacherInput').value.trim() || 'teacher-wambui-ke';
+    }
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    async function fetchState() {
+      const tid = getTeacherId();
+      document.getElementById('exportBtn').href = `/api/memories/export/?teacher_id=${encodeURIComponent(tid)}`;
+      const res = await fetch(`/api/memories/?teacher_id=${encodeURIComponent(tid)}`);
+      const data = await res.json();
+      renderState(data);
+    }
+
+    function switchTeacher() {
+      fetchState();
+    }
+
+    function renderState(state) {
+      currentState = state;
+      const t = state.teacher;
+      document.getElementById('teacherStatusBar').textContent =
+        `Teacher: ${t.display_name} (${t.teacher_id}) · Country: ${t.country} · Cohort: ${t.cohort_key} · Curriculum: ${t.curriculum} · Last Dreamed: ${t.last_dreamed_at ? new Date(t.last_dreamed_at).toLocaleString() : 'Never'}`;
+
+      // Settings
+      document.getElementById('settingEnabled').checked = state.settings.enabled;
+      document.getElementById('settingShareAggregate').checked = state.settings.share_aggregate;
+      document.getElementById('settingSensitiveMode').value = state.settings.sensitive_mode;
+      document.getElementById('settingBannerMode').value = state.settings.banner_mode;
+
+      // Core profile
+      document.getElementById('coreProfileMeta').textContent =
+        `v${state.core_profile.version} · Built from ${state.core_profile.built_from_count} memories`;
+      document.getElementById('coreProfileText').textContent =
+        state.core_profile.summary || '(No core profile memories yet)';
+
+      // Tombstones
+      document.getElementById('tombstoneBadge').textContent = `Tombstones (HMAC only): ${state.tombstone_count}`;
+      document.getElementById('unreadCountBadge').textContent = `${state.unread_notification_count} unread`;
+
+      renderBannersAndCards(state);
+      renderLifeAreas(state.life_areas);
+      renderCoreCategories(state.core_categories);
+      renderSuperseded(state.superseded_history);
+      renderNotifications(state.notifications);
+    }
+
+    function renderBannersAndCards(state) {
+      // 1. Live Notification Banner (most recent unactioned saved/updated banner)
+      const bannerEl = document.getElementById('liveBannerContainer');
+      const activeBanners = state.notifications.filter(
+        n => (n.kind === 'saved' || n.kind === 'updated') && n.action === 'pending' && !n.seen_at
+      );
+      if (activeBanners.length > 0 && state.settings.banner_mode === 'realtime') {
+        const latest = activeBanners[0];
+        bannerEl.innerHTML = `
+          <div class="banner">
+            <div>
+              <strong>${escapeHtml(latest.title)}</strong>
+              ${latest.grouped_count > 1 ? `<div style="font-size:12px; color:var(--muted);">${escapeHtml(latest.body)}</div>` : ''}
+            </div>
+            <div class="memory-actions">
+              ${latest.memory_id ? `<button onclick="promptEditMemory('${latest.memory_id}', '${escapeHtml(latest.body)}')">Edit</button>` : ''}
+              <button class="danger" onclick="notificationAction('${latest.id}', 'undo')">Undo</button>
+              <button onclick="notificationAction('${latest.id}', 'kept')">Keep</button>
+            </div>
+          </div>
+        `;
+      } else {
+        bannerEl.innerHTML = '';
+      }
+
+      // 2. Pending Sensitive Consent Cards
+      const consentEl = document.getElementById('consentQueueContainer');
+      if (state.pending_consents.length > 0) {
+        consentEl.innerHTML = state.pending_consents.map(c => `
+          <div class="consent-card">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+              <div>
+                <span class="badge consent">Pending Teacher Consent (${escapeHtml(c.category_label)})</span>
+                <strong>Amal would like to remember this. Keep it?</strong>
+                <div style="margin-top:4px;">"${escapeHtml(c.statement)}"</div>
+                <div style="font-size:12px; color:var(--muted); margin-top:2px;">
+                  WhatsApp prompt: <em>${escapeHtml(c.prompt_text)}</em> (Not in retrieval until you say Yes)
+                </div>
+              </div>
+              <div class="memory-actions">
+                <button class="primary" onclick="resolveConsent('${c.consent_id}', 'yes')">Yes, Keep</button>
+                <button class="danger" onclick="resolveConsent('${c.consent_id}', 'no')">No, Delete</button>
+              </div>
+            </div>
+          </div>
+        `).join('');
+      } else {
+        consentEl.innerHTML = '';
+      }
+
+      // 3. Nightly Taxonomy Reorganization Cards
+      const taxEl = document.getElementById('taxonomyCardsContainer');
+      const taxNotifs = state.notifications.filter(
+        n => n.kind === 'taxonomy_change' && n.action === 'pending' && n.changeset_status === 'applied'
+      );
+      if (taxNotifs.length > 0) {
+        taxEl.innerHTML = taxNotifs.map(n => `
+          <div class="taxonomy-card">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+              <div>
+                <span class="badge life-area">Nightly Taxonomy Reorganization</span>
+                <strong>${escapeHtml(n.title)}</strong>
+                <div style="font-size:12px; color:var(--muted);">${escapeHtml(n.body)}</div>
+              </div>
+              <div class="memory-actions">
+                <button onclick="notificationAction('${n.id}', 'kept')">Keep Reorganization</button>
+                <button class="danger" onclick="undoTaxonomyChangeset('${n.changeset_id}')">Undo (Reverts &amp; Freezes 30 Days)</button>
+              </div>
+            </div>
+          </div>
+        `).join('');
+      } else {
+        taxEl.innerHTML = '';
+      }
+    }
+
+    function renderMemoryRow(mem) {
+      return `
+        <div class="memory-row">
+          <div><strong>${escapeHtml(mem.statement)}</strong></div>
+          <div class="memory-meta">
+            <div>
+              <span class="badge">${escapeHtml(mem.subcategory_label_en)}</span>
+              <span class="badge">${escapeHtml(mem.source)}</span>
+              <span class="badge">${escapeHtml(mem.lang)}</span>
+              <span>conf: ${mem.confidence}</span>
+            </div>
+            <div class="memory-actions">
+              <button onclick="promptEditMemory('${mem.id}', '${escapeHtml(mem.statement)}')">Edit</button>
+              <button class="danger" onclick="deleteSingleMemory('${mem.id}')">Delete</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderLifeAreas(lifeAreas) {
+      const container = document.getElementById('lifeAreasContainer');
+      if (!lifeAreas || lifeAreas.length === 0) {
+        container.innerHTML = `<div class="empty-note">No dynamic life areas yet. Seed sample classroom data (which includes 5 Master's degree memories across 2 conversations) and click "Run Nightly Dreaming &amp; Taxonomy Evolution" to watch Amal create a new Life Area!</div>`;
+        return;
+      }
+      container.innerHTML = lifeAreas.map(la => `
+        <div class="category-box" style="border-color:#93c5fd;">
+          <div class="category-header">
+            <div>
+              <span class="badge life-area">Life Area (${escapeHtml(la.status)})</span>
+              <strong>${escapeHtml(la.label_en)}</strong>
+              <span style="font-size:12px; color:var(--muted);">/ ${escapeHtml(la.label_sw)}</span>
+            </div>
+            <span class="badge">${la.memory_count} memories</span>
+          </div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;">
+            <button onclick="promptRenameLifeArea('${la.id}', '${escapeHtml(la.label_en)}')">Rename</button>
+            ${la.status === 'archived' ? `<button onclick="restoreLifeArea('${la.id}')">Restore</button>` : ''}
+            <button class="danger" onclick="deleteLifeArea('${la.id}')">Delete Area</button>
+          </div>
+          <div class="subcat-pills">
+            Subcategories: ${la.subcategories.map(s => `<span class="badge">${escapeHtml(s.label_en)}</span>`).join(' ') || 'General'}
+          </div>
+          <div>
+            ${la.memories.length > 0 ? la.memories.map(renderMemoryRow).join('') : '<div class="empty-note">No active memories in this life area.</div>'}
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function renderCoreCategories(categories) {
+      const container = document.getElementById('coreCategoriesContainer');
+      container.innerHTML = categories.map(cat => `
+        <div class="category-box">
+          <div class="category-header">
+            <div>
+              <strong>${escapeHtml(cat.label_en)}</strong>
+              <span style="font-size:12px; color:var(--muted);">(${escapeHtml(cat.label_sw)})</span>
+            </div>
+            <div>
+              <span class="badge ${cat.sensitivity === 'consent' ? 'consent' : 'normal'}">${escapeHtml(cat.sensitivity)}</span>
+              <span class="badge">${cat.memory_count}</span>
+            </div>
+          </div>
+          <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">${escapeHtml(cat.description)}</div>
+          <div class="subcat-pills">
+            Subcategories: ${cat.subcategories.map(s => `<span class="badge">${escapeHtml(s.label_en)}</span>`).join(' ')}
+          </div>
+          <div>
+            ${cat.memories.length > 0 ? cat.memories.map(renderMemoryRow).join('') : '<div class="empty-note">No memories in this category yet.</div>'}
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function renderSuperseded(items) {
+      const el = document.getElementById('supersededContainer');
+      if (!items || items.length === 0) {
+        el.innerHTML = '<div class="empty-note">No superseded memories yet. Edit a memory or update class size/grade to see bi-temporal supersession.</div>';
+        return;
+      }
+      el.innerHTML = items.map(m => `
+        <div class="memory-row" style="opacity:0.8;">
+          <div><del>${escapeHtml(m.statement)}</del></div>
+          <div class="memory-meta">
+            <span>Slot: <code>${escapeHtml(m.slot)}</code></span>
+            <span>Retired at: ${m.retired_at ? new Date(m.retired_at).toLocaleTimeString() : ''}</span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function renderNotifications(notifs) {
+      const el = document.getElementById('notificationListContainer');
+      if (!notifs || notifs.length === 0) {
+        el.innerHTML = '<div class="empty-note">No notifications yet.</div>';
+        return;
+      }
+      el.innerHTML = notifs.map(n => `
+        <div class="memory-row">
+          <div>
+            <span class="badge">${escapeHtml(n.kind)}</span>
+            <span class="badge">${escapeHtml(n.origin_surface)}</span>
+            <strong>${escapeHtml(n.title)}</strong>
+          </div>
+          <div class="memory-meta">
+            <span>Status: <strong>${escapeHtml(n.action)}</strong></span>
+            <div class="memory-actions">
+              ${n.action === 'pending' ? `
+                <button onclick="notificationAction('${n.id}', 'kept')">Keep</button>
+                ${n.memory_id ? `<button onclick="promptEditMemory('${n.memory_id}', '${escapeHtml(n.body)}')">Edit</button>` : ''}
+                <button class="danger" onclick="notificationAction('${n.id}', 'undo')">Remove / Undo</button>
+              ` : ''}
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function seedDemoData() {
+      const res = await fetch('/api/seed-demo/', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({teacher_id: getTeacherId()})
+      });
+      const data = await res.json();
+      renderState(data.state);
+    }
+
+    async function runNightlyDream() {
+      const res = await fetch('/api/dream/', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({teacher_id: getTeacherId()})
+      });
+      const data = await res.json();
+      renderState(data.state);
+      const dream = data.dream_run;
+      document.getElementById('livePassResultBox').innerHTML = `
+        <div style="padding:8px; background:#eff6ff; border:1px solid #93c5fd; border-radius:4px;">
+          <strong>Nightly Dreaming Completed:</strong><br/>
+          Consolidation: ${JSON.stringify(dream.consolidation_stats)}<br/>
+          Taxonomy Evolution: ${escapeHtml(dream.taxonomy_result.summary_en || 'No taxonomy changes triggered')}
+        </div>
+      `;
+    }
+
+    async function submitLivePass() {
+      const text = document.getElementById('liveInputText').value.trim();
+      if (!text) return;
+      const surface = document.getElementById('liveSurface').value;
+      const product_area = document.getElementById('liveArea').value;
+      const conversation_id = document.getElementById('liveConvId').value.trim() || 'conv-101';
+
+      const res = await fetch('/api/live-pass/', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          teacher_id: getTeacherId(),
+          message: text,
+          surface,
+          product_area,
+          conversation_id
+        })
+      });
+      const data = await res.json();
+      renderState(data.state);
+
+      if (data.command_result) {
+        document.getElementById('livePassResultBox').innerHTML = `
+          <pre>${escapeHtml(data.command_result.reply)}</pre>
+        `;
+      } else if (data.live_pass) {
+        document.getElementById('livePassResultBox').innerHTML = `
+          <pre>${escapeHtml(JSON.stringify(data.live_pass.results, null, 2))}</pre>
+        `;
+      }
+      document.getElementById('liveInputText').value = '';
+    }
+
+    async function runHybridRetrieval() {
+      const query = document.getElementById('retrieveQuery').value.trim();
+      const res = await fetch('/api/retrieve/', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          teacher_id: getTeacherId(),
+          query,
+          surface: 'web',
+          product_area: 'tools'
+        })
+      });
+      const data = await res.json();
+      const ctx = data.context;
+      const box = document.getElementById('retrievalResultBox');
+      box.innerHTML = `
+        <div style="font-size:12px; margin-bottom:6px;">
+          <strong>Latency:</strong> ${ctx.latency_ms} ms ·
+          <strong>Trivial Turn Skip:</strong> ${ctx.skipped_retrieval ? 'YES (Skipped SQL)' : 'NO (Ran Hybrid RRF)'} ·
+          <strong>Retrieved:</strong> ${ctx.retrieved_memories.length}
+        </div>
+        ${ctx.retrieved_memories.map(m => `
+          <div class="memory-row">
+            <div><strong>[${escapeHtml(m.category_label)} / ${escapeHtml(m.subcategory_label)}]</strong> ${escapeHtml(m.statement)}</div>
+            <div style="font-size:11px; color:var(--muted);">
+              RRF: ${m.rrf_score} (cos: ${m.cosine_sim}, simple FTS: ${m.fts_score}, trgm: ${m.trgm_score})
+            </div>
+          </div>
+        `).join('')}
+        <details style="margin-top:6px;">
+          <summary style="cursor:pointer; font-weight:600; font-size:12px;">View Delimited System Prompt Block</summary>
+          <pre>${escapeHtml(ctx.prompt_block)}</pre>
+        </details>
+      `;
+    }
+
+    async function promptEditMemory(memoryId, currentText) {
+      const updated = window.prompt('Edit memory statement:', currentText);
+      if (!updated || updated.trim() === currentText) return;
+      const res = await fetch(`/api/memories/${memoryId}/`, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({teacher_id: getTeacherId(), statement: updated.trim()})
+      });
+      const data = await res.json();
+      renderState(data.state);
+    }
+
+    async function deleteSingleMemory(memoryId) {
+      const res = await fetch(`/api/memories/${memoryId}/?teacher_id=${encodeURIComponent(getTeacherId())}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      renderState(data.state);
+    }
+
+    async function deleteAllMemories() {
+      if (!window.confirm('Are you sure you want Amal to forget everything and delete all memories?')) return;
+      const res = await fetch('/api/memories/delete-all/', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({teacher_id: getTeacherId()})
+      });
+      const data = await res.json();
+      renderState(data.state);
+    }
+
+    async function resolveConsent(consentId, answer) {
+      const res = await fetch(`/api/consent/${consentId}/`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({teacher_id: getTeacherId(), answer})
+      });
+      const data = await res.json();
+      renderState(data.state);
+    }
+
+    async function notificationAction(notificationId, action) {
+      const res = await fetch(`/api/notifications/${notificationId}/action/`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({teacher_id: getTeacherId(), action})
+      });
+      const data = await res.json();
+      renderState(data.state);
+    }
+
+    async function undoTaxonomyChangeset(changesetId) {
+      const res = await fetch(`/api/taxonomy/undo/${changesetId}/`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({teacher_id: getTeacherId()})
+      });
+      const data = await res.json();
+      renderState(data.state);
+    }
+
+    async function createLifeArea() {
+      const label_en = document.getElementById('newLifeAreaEn').value.trim();
+      const label_sw = document.getElementById('newLifeAreaSw').value.trim();
+      if (!label_en) return;
+      const res = await fetch('/api/life-areas/', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          teacher_id: getTeacherId(),
+          action: 'create',
+          label_en,
+          label_sw
+        })
+      });
+      const data = await res.json();
+      document.getElementById('newLifeAreaEn').value = '';
+      document.getElementById('newLifeAreaSw').value = '';
+      renderState(data.state);
+    }
+
+    async function promptRenameLifeArea(categoryId, currentName) {
+      const updated = window.prompt('Rename Life Area (Teacher names are never overwritten by dreaming):', currentName);
+      if (!updated || !updated.trim()) return;
+      const res = await fetch('/api/life-areas/', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          teacher_id: getTeacherId(),
+          action: 'rename',
+          category_id: categoryId,
+          label_en: updated.trim()
+        })
+      });
+      const data = await res.json();
+      renderState(data.state);
+    }
+
+    async function restoreLifeArea(categoryId) {
+      const res = await fetch('/api/life-areas/', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          teacher_id: getTeacherId(),
+          action: 'restore',
+          category_id: categoryId
+        })
+      });
+      const data = await res.json();
+      renderState(data.state);
+    }
+
+    async function deleteLifeArea(categoryId) {
+      const res = await fetch('/api/life-areas/', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          teacher_id: getTeacherId(),
+          action: 'delete',
+          category_id: categoryId
+        })
+      });
+      const data = await res.json();
+      renderState(data.state);
+    }
+
+    async function saveSettings() {
+      const res = await fetch('/api/settings/', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          teacher_id: getTeacherId(),
+          enabled: document.getElementById('settingEnabled').checked,
+          share_aggregate: document.getElementById('settingShareAggregate').checked,
+          sensitive_mode: document.getElementById('settingSensitiveMode').value,
+          banner_mode: document.getElementById('settingBannerMode').value
+        })
+      });
+      const data = await res.json();
+      renderState(data.state);
+    }
+
+    fetchState();
+  </script>
+</body>
+</html>

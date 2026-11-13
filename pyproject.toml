@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "amal-agent-memory"
+version = "0.1.0"
+description = "Amal Memory and Dreaming: persistent, teacher-owned memory, hybrid retrieval, nightly dreaming, and evolving taxonomy"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "django>=5.0",
+    "pydantic>=2.0",
+    "numpy>=1.26",
+    "celery>=5.3",
+    "pgvector>=0.3.0",
+    "langgraph>=0.2.0",
+    "langchain-core>=0.3.0",
+    "scikit-learn>=1.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-django>=4.8",
+]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "amal_memory_project.settings"
+python_files = ["tests.py", "test_*.py", "*_tests.py"]
+addopts = "-v"
