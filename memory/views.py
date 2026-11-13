@@ -496,6 +496,39 @@ def api_export_memories(request: HttpRequest) -> HttpResponse:
     return response
 
 
+@require_http_methods(["GET"])
+def api_download_repo_zip(request: HttpRequest) -> HttpResponse:
+    """Download the tracked git repository as a .zip archive."""
+    import subprocess
+    proc = subprocess.run(
+        ["git", "archive", "--format=zip", "HEAD"],
+        cwd=str(settings.BASE_DIR),
+        capture_output=True,
+        check=True,
+    )
+    response = HttpResponse(proc.stdout, content_type="application/zip")
+    response["Content-Disposition"] = 'attachment; filename="amal_agent_memory.zip"'
+    return response
+
+
+@require_http_methods(["GET"])
+def api_download_git_bundle(request: HttpRequest) -> HttpResponse:
+    """Download the complete git repository history as a git bundle file."""
+    import subprocess
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".bundle") as tmp:
+        subprocess.run(
+            ["git", "bundle", "create", tmp.name, "--all"],
+            cwd=str(settings.BASE_DIR),
+            check=True,
+        )
+        tmp.seek(0)
+        data = tmp.read()
+    response = HttpResponse(data, content_type="application/octet-stream")
+    response["Content-Disposition"] = 'attachment; filename="amal_agent_memory.bundle"'
+    return response
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def api_resolve_consent(request: HttpRequest, consent_id: str) -> JsonResponse:
