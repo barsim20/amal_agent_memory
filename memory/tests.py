@@ -475,72 +475,123 @@ class AmalMemoryAndDreamingTests(TestCase):
 
     def test_chat_endpoint_with_haiku_and_llm_extraction(self):
         """
-        Verify `/api/chat/` generates a reply, runs LLM memory extraction on the teacher's turn,
-        saves extracted memories into the categorical schema, and retrieves them on subsequent turns.
+        Verify `/api/chat/` generates a reply via LangChain `ChatAnthropic`, runs LLM structured memory
+        extraction (`MemoryExtractionList`) on the teacher's turn, saves extracted memories into the
+        categorical schema, and retrieves them on subsequent turns.
         """
-        resp1 = self.client.post(
-            "/api/chat/",
-            data=json.dumps(
-                {
-                    "teacher_id": self.teacher_id,
-                    "message": "I teach Grade 6 Mathematics and Science with 65 learners, and we have no projector.",
-                }
-            ),
-            content_type="application/json",
-        )
-        self.assertEqual(resp1.status_code, 200)
-        data1 = resp1.json()
-        self.assertTrue(data1["reply"])
-        self.assertGreaterEqual(len(data1["extracted_candidates"]), 1)
+        from unittest.mock import patch
+        from .llm import ExtractedMemoryCandidate, MemoryExtractionList
 
-        # Follow-up lesson planning chat retrieves the extracted classroom memory
-        resp2 = self.client.post(
-            "/api/chat/",
-            data=json.dumps(
-                {
-                    "teacher_id": self.teacher_id,
-                    "message": "Help me plan a 20-minute Hisabati group activity.",
-                }
-            ),
-            content_type="application/json",
-        )
-        self.assertEqual(resp2.status_code, 200)
-        data2 = resp2.json()
-        self.assertGreaterEqual(len(data2["turn_context"]["retrieved_memories"]), 1)
+        def fake_langchain_invoke(messages, primary_model, max_tokens=800, temperature=0.2, api_key_override=None, structured_schema=None):
+            if structured_schema is MemoryExtractionList:
+                user_text = messages[-1].content
+                if "Grade 6 Mathematics" in user_text:
+                    return (
+                        MemoryExtractionList(
+                            memories=[
+                                ExtractedMemoryCandidate(
+                                    statement="Teaches Grade 6 Mathematics and Science",
+                                    category="teaching_context",
+                                    subcategory="subjects",
+                                    source="stated",
+                                    sensitivity="normal",
+                                    confidence=0.98,
+                                ),
+                                ExtractedMemoryCandidate(
+                                    statement="Has 65 learners per class and no projector",
+                                    category="classroom",
+                                    subcategory="resources",
+                                    source="stated",
+                                    sensitivity="normal",
+                                    confidence=0.96,
+                                ),
+                            ]
+                        ),
+                        "claude-3-5-haiku-latest",
+                        None,
+                    )
+                return MemoryExtractionList(memories=[]), "claude-3-5-haiku-latest", None
+            return "Here is a 20-minute Grade 6 Hisabati group activity for 65 learners using chalkboard.", "claude-3-5-haiku-latest", None
+
+        with patch("memory.llm._invoke_langchain_anthropic_with_fallback_models", side_effect=fake_langchain_invoke):
+            resp1 = self.client.post(
+                "/api/chat/",
+                data=json.dumps(
+                    {
+                        "teacher_id": self.teacher_id,
+                        "message": "I teach Grade 6 Mathematics and Science with 65 learners, and we have no projector.",
+                    }
+                ),
+                content_type="application/json",
+            )
+            self.assertEqual(resp1.status_code, 200)
+            data1 = resp1.json()
+            self.assertTrue(data1["reply"])
+            self.assertEqual(len(data1["extracted_candidates"]), 2)
+            self.assertEqual(data1["extracted_candidates"][0]["statement"], "Teaches Grade 6 Mathematics and Science")
+
+            # Follow-up lesson planning chat retrieves the extracted classroom memory
+            resp2 = self.client.post(
+                "/api/chat/",
+                data=json.dumps(
+                    {
+                        "teacher_id": self.teacher_id,
+                        "message": "Help me plan a 20-minute Hisabati group activity.",
+                    }
+                ),
+                content_type="application/json",
+            )
+            self.assertEqual(resp2.status_code, 200)
+            data2 = resp2.json()
+            self.assertGreaterEqual(len(data2["turn_context"]["retrieved_memories"]), 1)
 
     def test_bullet_wording_normalization_and_card_fields(self):
         """
-        Verify memories are saved in concise, subjectless, verb-led third-person bullet wording
+        Verify LLM-defined memories are saved in concise, subjectless, verb-led third-person bullet wording
         matching image.png (e.g. 'Built a Socratic tutor skill...', 'Does prompt optimization for WhatsApp agents')
         and category cards expose `last_updated` and personalized `summary`.
         """
-        inputs_and_expected = [
-            (
-                "I built a gradual-release-instructor skill using the skill-creator system.",
-                "Built a gradual-release-instructor skill using the skill-creator system",
-            ),
-            (
-                "I built a Socratic tutor skill using the skill-creator system.",
-                "Built a Socratic tutor skill using the skill-creator system",
-            ),
-            (
-                "The teacher built an Anki card creator skill.",
-                "Built an Anki card creator skill",
-            ),
-            (
-                "I do prompt optimization for WhatsApp agents.",
-                "Does prompt optimization for WhatsApp agents",
-            ),
+        from unittest.mock import patch
+        from .llm import ExtractedMemoryCandidate, MemoryExtractionList, extract_memories_with_llm
+
+        llm_defined_bullets = [
+            "Built a gradual-release-instructor skill using the skill-creator system",
+            "Built a Socratic tutor skill using the skill-creator system",
+            "Built an Anki card creator skill",
+            "Does prompt optimization for WhatsApp agents",
         ]
-        for idx, (raw_stmt, expected_bullet) in enumerate(inputs_and_expected):
-            res = save_or_update_memory(
-                teacher_id=self.teacher_id,
-                statement=raw_stmt,
-                category_slug="ongoing_work",
-                subcategory_slug=f"skill_{idx}",
+        mock_extraction = MemoryExtractionList(
+            memories=[
+                ExtractedMemoryCandidate(
+                    statement=stmt,
+                    category="ongoing_work",
+                    subcategory=f"skill_{idx}",
+                    source="stated",
+                    sensitivity="normal",
+                    confidence=0.97,
+                )
+                for idx, stmt in enumerate(llm_defined_bullets)
+            ]
+        )
+
+        with patch(
+            "memory.llm._invoke_langchain_anthropic_with_fallback_models",
+            return_value=(mock_extraction, "claude-3-5-haiku-latest", None),
+        ):
+            candidates, model_used, live_llm = extract_memories_with_llm(
+                "I built a gradual-release-instructor skill, a Socratic tutor skill, an Anki card creator skill, and I do prompt optimization for WhatsApp agents."
             )
-            self.assertTrue(res["saved"])
-            self.assertEqual(res["statement"], expected_bullet)
+            self.assertTrue(live_llm)
+            self.assertEqual(model_used, "claude-3-5-haiku-latest")
+            for idx, cand in enumerate(candidates):
+                res = save_or_update_memory(
+                    teacher_id=self.teacher_id,
+                    statement=cand["statement"],
+                    category_slug=cand["category"],
+                    subcategory_slug=cand["subcategory"],
+                )
+                self.assertTrue(res["saved"])
+                self.assertEqual(res["statement"], llm_defined_bullets[idx])
 
         state_resp = self.client.get(f"/api/memories/?teacher_id={self.teacher_id}")
         self.assertEqual(state_resp.status_code, 200)
@@ -549,7 +600,8 @@ class AmalMemoryAndDreamingTests(TestCase):
         self.assertTrue(ongoing_cat["last_updated"])
         self.assertIn("Akinyi", ongoing_cat["summary"])
         saved_bullets = [m["statement"] for m in ongoing_cat["memories"]]
-        for _, expected_bullet in inputs_and_expected:
+        for expected_bullet in llm_defined_bullets:
             self.assertIn(expected_bullet, saved_bullets)
+
 
 

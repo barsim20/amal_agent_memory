@@ -53,39 +53,6 @@ class DreamGraphState(TypedDict, total=False):
     aggregate_stats: dict[str, Any]
 
 
-def extract_atomic_statements_from_text(raw_text: str) -> list[dict[str, Any]]:
-    """
-    Lightweight rule + clause adapter that turns raw teacher message/reflection text
-    into atomic candidate statements when structured reflection items are not pre-supplied.
-    """
-    if not raw_text or not raw_text.strip():
-        return []
-
-    clauses = [
-        c.strip(" .")
-        for c in re.split(r"(?:[.;\n]+|\b(?:and\s+i\s+also|also\s+i|pia\s+nina)\b)", raw_text)
-        if c and c.strip(" .")
-    ]
-    from .services import format_memory_bullet_wording
-
-    extracted: list[dict[str, Any]] = []
-    for clause in clauses:
-        stmt = format_memory_bullet_wording(clause)
-        if stmt:
-            cat, sub, sens, _slot = infer_category_and_slot(stmt)
-            extracted.append(
-                {
-                    "statement": stmt,
-                    "category": cat,
-                    "subcategory": sub,
-                    "source": "stated",
-                    "sensitivity": sens,
-                    "confidence": 0.95,
-                }
-            )
-    return extracted
-
-
 # =============================================================================
 # 1. LIVE PASS GRAPH (`memory_live_graph`)
 # =============================================================================
@@ -103,21 +70,21 @@ def _live_load_profile_node(state: LiveGraphState) -> dict[str, Any]:
 def _live_adapter_node(state: LiveGraphState) -> dict[str, Any]:
     """
     Adapter node (PRD line 136):
-    Uses the LLM extraction model (`extract_memories_with_llm`, Claude Haiku) to extract and map
-    conversation turns / reflection output to the memory schema (content, category, subcategory,
-    source, sensitivity, confidence, evidence message ids). Reuses fields structured reflection
+    Uses the LangChain `ChatAnthropic` structured extraction model (`extract_memories_with_llm`, Claude Haiku)
+    to extract and map conversation turns / reflection output to the memory schema (statement, category,
+    subcategory, source, sensitivity, confidence, evidence message ids). Reuses fields structured reflection
     already produces and skips facts already present in the teacher's CoreProfile.
     """
     if not state.get("enabled", True):
         return {"adapted_candidates": []}
 
-    from .llm import extract_memories_with_llm
+    from .llm import extract_memories_with_llm, is_llm_configured
     from .models import MemoryCategory
 
     teacher_id = state["teacher_id"]
     active_life_areas = list(
         MemoryCategory.objects.filter(
-            teacher_id=teacher_id,
+            teacher__teacher_id=teacher_id,
             kind="life_area",
             status="active",
         ).values("slug", "label_en")
@@ -130,11 +97,15 @@ def _live_adapter_node(state: LiveGraphState) -> dict[str, Any]:
 
     for item in raw_items:
         if isinstance(item, str):
-            sub_items, _ext_model, _live = extract_memories_with_llm(
-                conversation_text=item,
-                core_profile_summary=core_profile_text,
-                active_life_areas=active_life_areas,
-            )
+            if is_llm_configured():
+                sub_items, _ext_model, _live = extract_memories_with_llm(
+                    conversation_text=item,
+                    core_profile_summary=core_profile_text,
+                    active_life_areas=active_life_areas,
+                )
+            else:
+                # Direct reflection string passed to live_pass when running without a live API key
+                sub_items = [{"statement": item.strip(), "source": "stated"}]
         elif isinstance(item, dict):
             sub_items = [item]
         else:
