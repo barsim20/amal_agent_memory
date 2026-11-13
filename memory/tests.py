@@ -508,3 +508,48 @@ class AmalMemoryAndDreamingTests(TestCase):
         data2 = resp2.json()
         self.assertGreaterEqual(len(data2["turn_context"]["retrieved_memories"]), 1)
 
+    def test_bullet_wording_normalization_and_card_fields(self):
+        """
+        Verify memories are saved in concise, subjectless, verb-led third-person bullet wording
+        matching image.png (e.g. 'Built a Socratic tutor skill...', 'Does prompt optimization for WhatsApp agents')
+        and category cards expose `last_updated` and personalized `summary`.
+        """
+        inputs_and_expected = [
+            (
+                "I built a gradual-release-instructor skill using the skill-creator system.",
+                "Built a gradual-release-instructor skill using the skill-creator system",
+            ),
+            (
+                "I built a Socratic tutor skill using the skill-creator system.",
+                "Built a Socratic tutor skill using the skill-creator system",
+            ),
+            (
+                "The teacher built an Anki card creator skill.",
+                "Built an Anki card creator skill",
+            ),
+            (
+                "I do prompt optimization for WhatsApp agents.",
+                "Does prompt optimization for WhatsApp agents",
+            ),
+        ]
+        for idx, (raw_stmt, expected_bullet) in enumerate(inputs_and_expected):
+            res = save_or_update_memory(
+                teacher_id=self.teacher_id,
+                statement=raw_stmt,
+                category_slug="ongoing_work",
+                subcategory_slug=f"skill_{idx}",
+            )
+            self.assertTrue(res["saved"])
+            self.assertEqual(res["statement"], expected_bullet)
+
+        state_resp = self.client.get(f"/api/memories/?teacher_id={self.teacher_id}")
+        self.assertEqual(state_resp.status_code, 200)
+        state_data = state_resp.json()
+        ongoing_cat = next(c for c in state_data["core_categories"] if c["slug"] == "ongoing_work")
+        self.assertTrue(ongoing_cat["last_updated"])
+        self.assertIn("Akinyi", ongoing_cat["summary"])
+        saved_bullets = [m["statement"] for m in ongoing_cat["memories"]]
+        for _, expected_bullet in inputs_and_expected:
+            self.assertIn(expected_bullet, saved_bullets)
+
+

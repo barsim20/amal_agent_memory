@@ -20,6 +20,7 @@ urlpatterns = [
     path("api/taxonomy/undo/<str:changeset_id>/", views.api_taxonomy_undo, name="api_taxonomy_undo"),
     path("api/taxonomy/apply/<str:changeset_id>/", views.api_taxonomy_apply, name="api_taxonomy_apply"),
     path("api/life-areas/", views.api_life_areas, name="api_life_areas"),
+    path("api/categories/<str:category_id>/clear/", views.api_clear_category, name="api_clear_category"),
     path("api/settings/", views.api_settings, name="api_settings"),
     path("api/seed-demo/", views.api_seed_demo, name="api_seed_demo"),
     path("api/admin/inspect/", views.api_admin_inspect, name="api_admin_inspect"),

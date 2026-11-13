@@ -74,11 +74,58 @@ def _get_teacher_id(request: HttpRequest, body: dict[str, Any] | None = None) ->
     return getattr(request, "teacher_id", None) or request.GET.get("teacher_id") or "teacher-wambui-ke"
 
 
+def _extract_short_teacher_name(teacher) -> str:
+    """Extract a clean first/short name for category summaries (e.g. 'Wambui' or 'Baran')."""
+    raw = (teacher.display_name or "").strip()
+    if raw:
+        # Remove parenthetical suffix like '(Kisumu Primary)' and titles like 'Mwalimu'
+        cleaned = raw.split("(")[0].strip()
+        for prefix in ("Mwalimu ", "Teacher ", "Mr. ", "Mr ", "Ms. ", "Ms ", "Mrs. ", "Mrs "):
+            if cleaned.lower().startswith(prefix.lower()):
+                cleaned = cleaned[len(prefix):].strip()
+        if cleaned:
+            return cleaned.split()[0]
+    tid = (teacher.teacher_id or "Teacher").replace("teacher-", "").replace("-ke", "").replace("-tz", "")
+    parts = [p for p in tid.replace("_", "-").split("-") if p]
+    return parts[0].capitalize() if parts else "Teacher"
+
+
+def _build_category_summary(slug: str, label_en: str, short_name: str, is_life_area: bool = False) -> str:
+    """Build a concise one-line category summary personalized with the teacher's name."""
+    templates = {
+        "profile": f"School, county, role, and professional background {short_name} has shared",
+        "teaching_context": f"Grades, subjects, curriculum, and class sizes {short_name} teaches",
+        "classroom": f"Classroom setup, available resources, and learner profile {short_name} works with",
+        "practice": f"Reusable teaching strategies, skills, and classroom practices {short_name} has built and tried",
+        "learning_journey": f"AI training modules, certifications, and skills {short_name} has completed",
+        "ongoing_work": f"Reusable AI tooling, skills, lesson plans, and active projects {short_name} has built",
+        "preferences": f"Language, response format, and tone preferences {short_name} uses",
+        "people": f"Colleagues, mentors, and school contacts {short_name} collaborates with",
+        "wellbeing": f"Workload, schedule constraints, and wellbeing notes {short_name} has shared",
+        "named_learners": f"Individual learner notes and accommodations {short_name} tracks",
+    }
+    if slug in templates and not is_life_area:
+        return templates[slug]
+    lower_label = label_en.lower()
+    if "ai" in lower_label or "tool" in lower_label or "skill" in lower_label:
+        return f"Reusable AI tooling, skills, and prompt work {short_name} has built"
+    if "master" in lower_label or "degree" in lower_label or "university" in lower_label:
+        return f"Postgraduate coursework, thesis research, and university studies {short_name} is pursuing"
+    return f"Reusable {lower_label} work, projects, and notes {short_name} has built"
+
+
+def _format_last_updated(dt) -> str:
+    """Format a timestamp as 'Sep 12, 2026' matching the memory card design."""
+    if not dt:
+        dt = timezone.now()
+    return f"{dt.strftime('%b')} {dt.day}, {dt.year}"
+
+
 def build_categorical_state(teacher_id: str) -> dict[str, Any]:
     """
     Assemble the complete categorical representation of a teacher's memory state:
     - Core Profile summary & metadata
-    - All 10 Protected Core Categories (with subcategories and active memories)
+    - All 10 Protected Core Categories (with subcategories, summary, last_updated, and active memories)
     - Dynamic Life Areas (active and archived)
     - Pending Consent queue (`pending_consent` items + ConsentRequest IDs)
     - Web Notifications (realtime banner, since-last-visit cards, taxonomy cards)
@@ -86,6 +133,7 @@ def build_categorical_state(teacher_id: str) -> dict[str, Any]:
     - Settings & quality metrics
     """
     teacher = get_or_create_teacher(teacher_id)
+    short_name = _extract_short_teacher_name(teacher)
     core_map = seed_core_categories()
     profile = getattr(teacher, "core_profile", None) or regenerate_core_profile(teacher)
     settings_obj = teacher.settings
@@ -102,10 +150,14 @@ def build_categorical_state(teacher_id: str) -> dict[str, Any]:
     )
 
     links_by_cat: dict[str, list[dict[str, Any]]] = {}
+    latest_dt_by_cat: dict[str, Any] = {}
     for link in active_links:
         mem = link.memory
         ev = mem.evidence.first()
-        links_by_cat.setdefault(str(link.category_id), []).append(
+        cat_key = str(link.category_id)
+        if mem.recorded_at and (cat_key not in latest_dt_by_cat or mem.recorded_at > latest_dt_by_cat[cat_key]):
+            latest_dt_by_cat[cat_key] = mem.recorded_at
+        links_by_cat.setdefault(cat_key, []).append(
             {
                 "id": str(mem.id),
                 "statement": mem.statement,
@@ -125,6 +177,7 @@ def build_categorical_state(teacher_id: str) -> dict[str, Any]:
                 "created_by": mem.created_by,
                 "valid_from": mem.valid_from.isoformat() if mem.valid_from else None,
                 "recorded_at": mem.recorded_at.isoformat() if mem.recorded_at else None,
+                "last_updated_display": _format_last_updated(mem.recorded_at),
             }
         )
 
@@ -139,14 +192,18 @@ def build_categorical_state(teacher_id: str) -> dict[str, Any]:
         )
         for s in subcats:
             s["id"] = str(s["id"])
-        cat_memories = links_by_cat.get(str(cat_obj.id), [])
+        cat_id_str = str(cat_obj.id)
+        cat_memories = links_by_cat.get(cat_id_str, [])
+        cat_last_dt = latest_dt_by_cat.get(cat_id_str) or cat_obj.last_memory_at or cat_obj.created_at
         core_categories_out.append(
             {
-                "id": str(cat_obj.id),
+                "id": cat_id_str,
                 "slug": cat_obj.slug,
                 "label_en": cat_obj.label_en,
                 "label_sw": cat_obj.label_sw,
                 "description": cat_seed["description"],
+                "summary": _build_category_summary(cat_obj.slug, cat_obj.label_en, short_name, is_life_area=False),
+                "last_updated": _format_last_updated(cat_last_dt),
                 "sensitivity": cat_obj.sensitivity,
                 "is_protected": True,
                 "frozen_until": cat_obj.frozen_until.isoformat() if cat_obj.frozen_until else None,
@@ -171,13 +228,17 @@ def build_categorical_state(teacher_id: str) -> dict[str, Any]:
         )
         for s in subcats:
             s["id"] = str(s["id"])
-        la_memories = links_by_cat.get(str(la.id), [])
+        la_id_str = str(la.id)
+        la_memories = links_by_cat.get(la_id_str, [])
+        la_last_dt = latest_dt_by_cat.get(la_id_str) or la.last_memory_at or la.created_at
         life_areas_out.append(
             {
-                "id": str(la.id),
+                "id": la_id_str,
                 "slug": la.slug,
                 "label_en": la.label_en,
                 "label_sw": la.label_sw,
+                "summary": _build_category_summary(la.slug, la.label_en, short_name, is_life_area=True),
+                "last_updated": _format_last_updated(la_last_dt),
                 "status": la.status,
                 "created_by": la.created_by,
                 "frozen_until": la.frozen_until.isoformat() if la.frozen_until else None,
@@ -693,12 +754,61 @@ def api_settings(request: HttpRequest) -> JsonResponse:
 
 
 @csrf_exempt
+@require_http_methods(["POST", "DELETE"])
+def api_clear_category(request: HttpRequest, category_id: str) -> JsonResponse:
+    """
+    Delete a dynamic life area or delete all active memories inside a protected core category.
+    """
+    body = _parse_body(request)
+    teacher_id = _get_teacher_id(request, body)
+    teacher = get_or_create_teacher(teacher_id)
+    cat = MemoryCategory.objects.filter(id=category_id).first()
+    if not cat:
+        return JsonResponse({"ok": False, "reason": "not_found"}, status=404)
+
+    if cat.kind == "life_area" and cat.teacher_id == teacher.id:
+        res = teacher_manage_life_area(
+            teacher_id=teacher_id,
+            action="delete",
+            category_id=str(cat.id),
+        )
+        return JsonResponse({"result": res, "state": build_categorical_state(teacher_id)})
+
+    # Protected core category: delete all active memories linked to this category for this teacher
+    links = list(
+        MemoryCategoryLink.objects.filter(
+            memory__teacher=teacher,
+            memory__status="active",
+            category=cat,
+            valid_to__isnull=True,
+        ).select_related("memory")
+    )
+    deleted_ids = []
+    for lnk in links:
+        delete_memory(
+            teacher_id=teacher_id,
+            memory_id=str(lnk.memory_id),
+            actor="teacher",
+            record_tombstone=True,
+        )
+        deleted_ids.append(str(lnk.memory_id))
+    return JsonResponse(
+        {
+            "result": {"deleted_count": len(deleted_ids), "deleted_ids": deleted_ids},
+            "state": build_categorical_state(teacher_id),
+        }
+    )
+
+
+@csrf_exempt
 @require_http_methods(["POST"])
 def api_seed_demo(request: HttpRequest) -> JsonResponse:
     """
-    Seed realistic Kenyan teacher memories across the protected core categories,
-    a pending sensitive consent item, and 5 Master's degree memories across 2 conversations
-    so the user can immediately inspect the categorical representation and trigger Nightly Dreaming.
+    Seed realistic memories in the exact concise, verb-led bullet wording from image.png:
+    - 'AI Tooling' Life Area with the 4 AI tooling bullets from the reference screenshot
+    - Protected Core Categories for classroom & teaching context
+    - A pending sensitive consent item ('Co-plans Science lessons with colleague Wanjiru')
+    - 5 Master's degree memories across 2 conversations to demonstrate Nightly Dreaming taxonomy evolution.
     """
     body = _parse_body(request)
     teacher_id = _get_teacher_id(request, body)
@@ -711,15 +821,29 @@ def api_seed_demo(request: HttpRequest) -> JsonResponse:
         preferred_lang="en",
     )
 
+    # Ensure the 'AI Tooling' Life Area exists so the exact card from image.png is immediately visible
+    teacher_manage_life_area(
+        teacher_id=teacher.teacher_id,
+        action="create",
+        label_en="AI Tooling",
+        label_sw="Zana za AI",
+    )
+
     sample_memories = [
+        # Exact 'AI Tooling' bullets from image.png
+        ("Built a gradual-release-instructor skill using the skill-creator system", "ai_tooling", "skills_built", "stated", "web", "conv-ai-1"),
+        ("Built a Socratic tutor skill using the skill-creator system", "ai_tooling", "skills_built", "stated", "web", "conv-ai-1"),
+        ("Built an Anki card creator skill", "ai_tooling", "anki_skill", "stated", "web", "conv-ai-1"),
+        ("Does prompt optimization for WhatsApp agents", "ai_tooling", "prompt_optimization", "stated", "web", "conv-ai-2"),
+        # Core classroom & teaching categories in the same concise verb-led wording
         ("Teaches at a public primary school in Kisumu County", "profile", "school", "stated", "whatsapp", "conv-1"),
-        ("Teaches Grade 6 Mathematics and Science, CBC", "teaching_context", "subjects", "stated", "whatsapp", "conv-1"),
-        ("Around 60 learners per class", "teaching_context", "class_size", "stated", "whatsapp", "conv-1"),
-        ("No projector in classroom; uses chalkboard and manila charts", "classroom", "resources", "stated", "web", "conv-2"),
-        ("Group work in Science went well; wants to try peer assessment", "practice", "what_worked", "stated", "web", "conv-2"),
+        ("Teaches Grade 6 Mathematics and Science under CBC", "teaching_context", "subjects", "stated", "whatsapp", "conv-1"),
+        ("Has around 60 learners per class", "teaching_context", "class_size", "stated", "whatsapp", "conv-1"),
+        ("Lacks a classroom projector; uses chalkboard and manila charts", "classroom", "resources", "stated", "web", "conv-2"),
+        ("Ran group work in Science that went well; wants to try peer assessment", "practice", "what_worked", "stated", "web", "conv-2"),
         ("Completed Foundations of AI Level 1, Module 3", "learning_journey", "modules", "observed", "web", "conv-2"),
         ("Preparing Term 2 scheme of work for Grade 6 Maths", "ongoing_work", "active_projects", "stated", "web", "conv-2"),
-        ("Prefers Kiswahili and English mix, short answers, bullet-point plans", "preferences", "format", "stated", "whatsapp", "conv-1"),
+        ("Prefers Kiswahili and English mix, short answers, and bullet-point plans", "preferences", "format", "stated", "whatsapp", "conv-1"),
         # Sensitive memory -> goes to pending_consent queue
         ("Co-plans with her colleague Wanjiru", "people", "colleagues", "stated", "whatsapp", "conv-3"),
         # 5 memories across 2 conversations about Master's degree -> triggers New Life Area when Nightly Dreaming runs

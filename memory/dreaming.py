@@ -66,22 +66,12 @@ def extract_atomic_statements_from_text(raw_text: str) -> list[dict[str, Any]]:
         for c in re.split(r"(?:[.;\n]+|\b(?:and\s+i\s+also|also\s+i|pia\s+nina)\b)", raw_text)
         if c and c.strip(" .")
     ]
+    from .services import format_memory_bullet_wording
+
     extracted: list[dict[str, Any]] = []
     for clause in clauses:
-        # Normalize first-person teacher statements into concise atomic third-person memory phrasing
-        stmt = clause.strip()
-        stmt = re.sub(r"^i\s+teach\b", "Teaches", stmt, flags=re.I)
-        stmt = re.sub(r"^i\s+am\s+teaching\b", "Teaches", stmt, flags=re.I)
-        stmt = re.sub(r"^i\s+prefer\b", "Prefers", stmt, flags=re.I)
-        stmt = re.sub(r"^i\s+feel\b", "Feels", stmt, flags=re.I)
-        stmt = re.sub(r"^i\s+co-?plan\b", "Co-plans", stmt, flags=re.I)
-        stmt = re.sub(r"^i\s+completed\b", "Completed", stmt, flags=re.I)
-        stmt = re.sub(r"^i\s+am\s+preparing\b", "Preparing", stmt, flags=re.I)
-        stmt = re.sub(r"^we\s+have\s+no\b", "No", stmt, flags=re.I)
-        stmt = re.sub(r"^i\s+have\s+no\b", "No", stmt, flags=re.I)
-        stmt = re.sub(r"^my\s+class\s+has\b", "Has", stmt, flags=re.I)
+        stmt = format_memory_bullet_wording(clause)
         if stmt:
-            stmt = stmt[0].upper() + stmt[1:]
             cat, sub, sens, _slot = infer_category_and_slot(stmt)
             extracted.append(
                 {

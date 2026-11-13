@@ -63,9 +63,62 @@ SINGLETON_SLOTS = {
 }
 
 
+FIRST_PERSON_TO_BULLET_RULES: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"^(?:the\s+teacher|teacher|the\s+user|user)\s+", re.I), ""),
+    (re.compile(r"^i(?:'ve|\s+have)?\s+built\b", re.I), "Built"),
+    (re.compile(r"^i(?:'ve|\s+have)?\s+created\b", re.I), "Created"),
+    (re.compile(r"^i(?:'ve|\s+have)?\s+developed\b", re.I), "Developed"),
+    (re.compile(r"^i(?:'ve|\s+have)?\s+completed\b", re.I), "Completed"),
+    (re.compile(r"^i(?:'ve|\s+have)?\s+tried\b", re.I), "Tried"),
+    (re.compile(r"^i(?:'ve|\s+have)?\s+enrolled\b", re.I), "Enrolled"),
+    (re.compile(r"^i\s+am\s+enrolled\b", re.I), "Enrolled"),
+    (re.compile(r"^i\s+do\b", re.I), "Does"),
+    (re.compile(r"^i(?:\s+am\s+working|\s+work)\s+on\b", re.I), "Works on"),
+    (re.compile(r"^i(?:\s+am\s+teaching|\s+teach)\b", re.I), "Teaches"),
+    (re.compile(r"^i(?:\s+am\s+using|\s+use)\b", re.I), "Uses"),
+    (re.compile(r"^i(?:\s+am\s+building|\s+build)\b", re.I), "Builds"),
+    (re.compile(r"^i(?:\s+am\s+preparing|\s+prepare)\b", re.I), "Preparing"),
+    (re.compile(r"^i(?:\s+am\s+writing|\s+write)\b", re.I), "Writing"),
+    (re.compile(r"^i(?:\s+am\s+taking|\s+take)\b", re.I), "Taking"),
+    (re.compile(r"^i(?:\s+am\s+collecting|\s+collect)\b", re.I), "Collecting"),
+    (re.compile(r"^i(?:\s+am\s+meeting|\s+meet)\b", re.I), "Meeting"),
+    (re.compile(r"^i(?:\s+am\s+coaching|\s+coach)\b", re.I), "Coaches"),
+    (re.compile(r"^i\s+prefer\b", re.I), "Prefers"),
+    (re.compile(r"^i\s+want\b", re.I), "Wants"),
+    (re.compile(r"^i\s+need\b", re.I), "Needs"),
+    (re.compile(r"^i(?:\s+am\s+feeling|\s+feel)\b", re.I), "Feels"),
+    (re.compile(r"^i\s+co-?plan\b", re.I), "Co-plans"),
+    (re.compile(r"^(?:we|i|my\s+class(?:room)?)\s+(?:have|has)\s+no\b", re.I), "No"),
+    (re.compile(r"^(?:we|i|my\s+class(?:room)?)\s+(?:have|has)\b", re.I), "Has"),
+    (re.compile(r"^i(?:'m|\s+am)\s+a\b", re.I), "Is a"),
+]
+
+
+def format_memory_bullet_wording(statement: str) -> str:
+    """
+    Format a memory statement into concise, subjectless verb-led bullet wording
+    (e.g., 'Built a gradual-release-instructor skill using the skill-creator system',
+    'Does prompt optimization for WhatsApp agents', 'Teaches Grade 6 Mathematics and Science').
+    """
+    if not statement:
+        return ""
+    text = statement.strip()
+    text = re.sub(r"^[\s•\-\*]+", "", text).strip()
+    text = text.rstrip(".")
+    for pattern, replacement in FIRST_PERSON_TO_BULLET_RULES:
+        new_text, count = pattern.subn(replacement, text, count=1)
+        if count > 0:
+            text = new_text.strip()
+            break
+    if text:
+        text = text[0].upper() + text[1:]
+    return text
+
+
 def normalize_statement(statement: str) -> str:
     """Normalize statement text for deterministic HMAC tombstone hashing."""
-    cleaned = re.sub(r"[^\w\s]", "", statement.lower().strip())
+    formatted = format_memory_bullet_wording(statement)
+    cleaned = re.sub(r"[^\w\s]", "", formatted.lower().strip())
     return re.sub(r"\s+", " ", cleaned)
 
 
@@ -455,7 +508,7 @@ def save_or_update_memory(
     now = timezone.now()
 
     learner_pseudonym = ""
-    stored_statement = statement.strip()
+    stored_statement = format_memory_bullet_wording(statement)
     if top_cat.slug == "named_learners":
         learner_pseudonym, _raw_name = pseudonymize_learner_name(teacher.teacher_id, stored_statement)
 
@@ -591,6 +644,7 @@ def save_or_update_memory(
                 "saved": True,
                 "status": "pending_consent",
                 "memory_id": str(new_item.id),
+                "statement": stored_statement,
                 "consent_request_id": str(consent_req.id),
                 "consent_prompt": prompt_text,
                 "notification_id": str(notification.id),
@@ -648,6 +702,7 @@ def save_or_update_memory(
             "saved": True,
             "status": "active",
             "memory_id": str(new_item.id),
+            "statement": stored_statement,
             "superseded_id": str(superseded_old.id) if superseded_old else None,
             "notification_id": str(notification.id),
             "category": top_cat.slug,
@@ -768,16 +823,17 @@ def edit_memory(
         sub = active_link.subcategory if active_link else None
 
         now = timezone.now()
-        vec = embed_text(new_statement)
-        tokens_str = " ".join(simple_tokenize(new_statement))
+        formatted_new = format_memory_bullet_wording(new_statement)
+        vec = embed_text(formatted_new)
+        tokens_str = " ".join(simple_tokenize(formatted_new))
 
         new_mem = MemoryItem.objects.create(
             teacher=teacher,
             scope=old_mem.scope,
-            statement=new_statement.strip(),
+            statement=formatted_new,
             slot=old_mem.slot,
             learner_pseudonym_id=old_mem.learner_pseudonym_id,
-            lang=detect_language(new_statement),
+            lang=detect_language(formatted_new),
             source="stated",
             sensitivity=old_mem.sensitivity,
             status="active",
