@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { CategoricalState } from "../types";
+import { CategoricalState, CategoryCardData } from "../types";
 import MemoryCategoryCard from "./MemoryCategoryCard";
 
 interface MemoryDashboardProps {
@@ -21,6 +21,17 @@ interface MemoryDashboardProps {
 }
 
 type FilterTab = "populated" | "all" | "life_areas" | "core" | "system";
+type DisplayMode = "list" | "cards";
+
+const YOU_SLUGS = new Set([
+  "preferences",
+  "profile",
+  "teaching_context",
+  "classroom",
+  "people",
+  "wellbeing",
+  "named_learners",
+]);
 
 export default function MemoryDashboard({
   state,
@@ -38,10 +49,14 @@ export default function MemoryDashboard({
   onDeleteAllMemories,
 }: MemoryDashboardProps) {
   const [filterTab, setFilterTab] = useState<FilterTab>("populated");
+  const [displayMode, setDisplayMode] = useState<DisplayMode>("list");
   const [searchQuery, setSearchQuery] = useState("");
   const [creatingArea, setCreatingArea] = useState(false);
   const [newAreaEn, setNewAreaEn] = useState("");
   const [newAreaSw, setNewAreaSw] = useState("");
+  const [activeCategorySlug, setActiveCategorySlug] = useState<string | null>(null);
+  const [activeSubcategorySlug, setActiveSubcategorySlug] = useState<string | null>(null);
+  const [quickMemoryText, setQuickMemoryText] = useState("");
 
   const activeBanners = state.notifications.filter(
     (n) =>
@@ -91,6 +106,27 @@ export default function MemoryDashboard({
     return true;
   });
 
+  const allFilteredCategories: CategoryCardData[] = [
+    ...(filterTab !== "life_areas" ? filteredCoreCategories : []),
+    ...(filterTab !== "core" ? filteredLifeAreas : []),
+  ];
+
+  const youItems = allFilteredCategories.filter(
+    (c) => (c.section || (YOU_SLUGS.has(c.slug) && !c.is_life_area ? "you" : "topics")) === "you"
+  );
+  const topicItems = allFilteredCategories.filter(
+    (c) => (c.section || (YOU_SLUGS.has(c.slug) && !c.is_life_area ? "you" : "topics")) === "topics"
+  );
+
+  const allCategories = [...state.core_categories, ...state.life_areas];
+  const activeCategory = activeCategorySlug
+    ? allCategories.find((c) => c.slug === activeCategorySlug) || null
+    : null;
+  const activeSubcategory =
+    activeCategory && activeSubcategorySlug
+      ? activeCategory.subcategories.find((s) => s.slug === activeSubcategorySlug) || null
+      : null;
+
   const handleCreateAreaSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newAreaEn.trim()) return;
@@ -98,6 +134,13 @@ export default function MemoryDashboard({
     setNewAreaEn("");
     setNewAreaSw("");
     setCreatingArea(false);
+  };
+
+  const handleQuickAdd = async () => {
+    const trimmed = quickMemoryText.trim();
+    if (!trimmed) return;
+    setQuickMemoryText("");
+    await onAddMemory(activeCategorySlug || "preferences", trimmed);
   };
 
   const totalSavedMemories =
@@ -201,7 +244,7 @@ export default function MemoryDashboard({
         </div>
       )}
 
-      {/* Filter & Search Toolbar */}
+      {/* Filter, List/Cards Toggle & Search Toolbar */}
       <div className="dashboard-toolbar">
         <div className="segmented-tabs">
           <button
@@ -224,20 +267,41 @@ export default function MemoryDashboard({
           </button>
           <button
             className={`seg-btn ${filterTab === "system" ? "active" : ""}`}
-            onClick={() => setFilterTab("system")}
+            onClick={() => {
+              setFilterTab("system");
+              setActiveCategorySlug(null);
+              setActiveSubcategorySlug(null);
+            }}
           >
             Core Profile &amp; Settings
           </button>
         </div>
 
-        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+          <div className="segmented-tabs" role="group" aria-label="Memory display layout">
+            <button
+              type="button"
+              className={`seg-btn ${displayMode === "list" ? "active" : ""}`}
+              onClick={() => setDisplayMode("list")}
+            >
+              List
+            </button>
+            <button
+              type="button"
+              className={`seg-btn ${displayMode === "cards" ? "active" : ""}`}
+              onClick={() => setDisplayMode("cards")}
+            >
+              Cards
+            </button>
+          </div>
+
           <input
             type="text"
             className="input"
             placeholder="Filter categories or memories..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            style={{ width: "220px" }}
+            style={{ width: "200px" }}
           />
           <button
             className="btn"
@@ -294,7 +358,7 @@ export default function MemoryDashboard({
                   Always-Injected Core Profile Block
                 </h3>
                 <div style={{ fontSize: "12.5px", color: "var(--text-muted)" }}>
-                  Injected into Claude Haiku on every turn (max ~300 tokens, Redis-cached)
+                  Injected into Claude Sonnet on every turn (max ~300 tokens, Redis-cached)
                 </div>
               </div>
               <span className="tag">
@@ -338,52 +402,6 @@ export default function MemoryDashboard({
                   </span>
                 </label>
 
-                <div>
-                  <div className="memory-field-label">Sensitive Memory Mode</div>
-                  <select
-                    className="input"
-                    style={{ width: "100%", marginTop: "4px" }}
-                    value={state.settings.sensitive_mode}
-                    onChange={(e) =>
-                      onUpdateSettings({
-                        sensitive_mode: e.target.value as
-                          | "always_ask"
-                          | "never_remember",
-                      })
-                    }
-                  >
-                    <option value="always_ask">
-                      Always ask me before saving personal things
-                    </option>
-                    <option value="never_remember">
-                      Never remember personal things
-                    </option>
-                  </select>
-                </div>
-
-                <div>
-                  <div className="memory-field-label">Web Notification Mode</div>
-                  <select
-                    className="input"
-                    style={{ width: "100%", marginTop: "4px" }}
-                    value={state.settings.banner_mode}
-                    onChange={(e) =>
-                      onUpdateSettings({
-                        banner_mode: e.target.value as
-                          | "realtime"
-                          | "next_visit_summary",
-                      })
-                    }
-                  >
-                    <option value="realtime">
-                      Show realtime banner during web sessions
-                    </option>
-                    <option value="next_visit_summary">
-                      Summary on next visit only
-                    </option>
-                  </select>
-                </div>
-
                 <div
                   style={{
                     paddingTop: "12px",
@@ -422,7 +440,7 @@ export default function MemoryDashboard({
               </div>
               {state.superseded_history.length === 0 ? (
                 <div style={{ fontSize: "13px", color: "var(--text-muted)" }}>
-                  No superseded memories yet. Updating a singleton slot (like class size or grade) preserves the prior version here with valid_to and retired_at timestamps.
+                  No superseded memories yet. Updating a singleton slot preserves the prior version here with valid_to and retired_at timestamps.
                 </div>
               ) : (
                 <ul className="memory-details-list">
@@ -443,8 +461,232 @@ export default function MemoryDashboard({
             </div>
           </div>
         </div>
+      ) : activeCategory && activeSubcategory ? (
+        /* LAYER 3: Subcategory Detail View */
+        <div className="claude-memory-shell">
+          <div className="claude-detail-view">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+              <button
+                type="button"
+                className="claude-back-link"
+                style={{ marginBottom: 0 }}
+                onClick={() => setActiveSubcategorySlug(null)}
+              >
+                &larr; {activeCategory.label_en}
+              </button>
+              <span className="tag life-area">Layer 3 of 3 &middot; Subcategory</span>
+            </div>
+
+            <div className="claude-detail-header">
+              <h2 className="claude-detail-title">{activeSubcategory.label_en}</h2>
+            </div>
+
+            <div className="claude-detail-section">
+              <div className="claude-detail-label">Last updated</div>
+              <div className="claude-detail-text">
+                {activeSubcategory.last_updated || "No memories saved yet"}
+              </div>
+            </div>
+
+            <div className="claude-detail-section">
+              <div className="claude-detail-label">Summary</div>
+              <div className="claude-detail-text">
+                {activeSubcategory.summary || ""}
+              </div>
+            </div>
+
+            <div className="claude-detail-section">
+              <div className="claude-detail-label">
+                Details ({activeSubcategory.memories?.length || 0})
+              </div>
+              <ul className="claude-detail-bullets">
+                {(activeSubcategory.memories || []).map((mem) => (
+                  <li key={mem.id}>
+                    <div className="memory-bullet-row">
+                      <span>{mem.statement}</span>
+                      <div className="memory-bullet-actions" style={{ opacity: 1 }}>
+                        <button
+                          className="btn btn-xs btn-danger-ghost"
+                          onClick={() => onDeleteMemory(mem.id)}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      ) : activeCategory ? (
+        /* LAYER 2: Category Detail View (matching image_2.png) */
+        <div className="claude-memory-shell">
+          <div className="claude-detail-view">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+              <button
+                type="button"
+                className="claude-back-link"
+                style={{ marginBottom: 0 }}
+                onClick={() => {
+                  setActiveCategorySlug(null);
+                  setActiveSubcategorySlug(null);
+                }}
+              >
+                &larr; Memory
+              </button>
+              <span className="tag">Layer 2 of 3 &middot; {activeCategory.label_en}</span>
+            </div>
+
+            <div className="claude-detail-header">
+              <h2 className="claude-detail-title">{activeCategory.label_en}</h2>
+              <div className="claude-detail-actions">
+                <button
+                  className="btn btn-danger-ghost"
+                  onClick={() =>
+                    onDeleteCategory(activeCategory.id, Boolean(activeCategory.is_life_area))
+                  }
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+
+            <div className="claude-detail-section">
+              <div className="claude-detail-label">Last updated</div>
+              <div className="claude-detail-text">{activeCategory.last_updated}</div>
+            </div>
+
+            <div className="claude-detail-section">
+              <div className="claude-detail-label">Summary</div>
+              <div className="claude-detail-text">{activeCategory.summary}</div>
+            </div>
+
+            {activeCategory.subcategories.length > 0 && (
+              <div className="claude-detail-section">
+                <div className="claude-detail-label">
+                  Subcategories (Click to open Layer 3)
+                </div>
+                <div className="claude-list-table">
+                  {activeCategory.subcategories.map((sub) => (
+                    <div
+                      key={sub.id}
+                      className="claude-list-row"
+                      onClick={() => setActiveSubcategorySlug(sub.slug)}
+                    >
+                      <div className="claude-list-title">
+                        {sub.label_en}{" "}
+                        <span className="tag">
+                          {sub.memory_count ?? sub.memories?.length ?? 0}
+                        </span>
+                      </div>
+                      <div className="claude-list-summary">{sub.summary || ""}</div>
+                      <div className="claude-list-date">
+                        {sub.last_updated_short || "Open Layer 3 →"}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="claude-detail-section">
+              <div className="claude-detail-label">Details</div>
+              <ul className="claude-detail-bullets">
+                {activeCategory.memories.map((mem) => (
+                  <li key={mem.id}>
+                    <div className="memory-bullet-row">
+                      <span>{mem.statement}</span>
+                      <div className="memory-bullet-actions" style={{ opacity: 1 }}>
+                        <button
+                          className="btn btn-xs btn-danger-ghost"
+                          onClick={() => onDeleteMemory(mem.id)}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="claude-bottom-input-wrap">
+              <div className="claude-bottom-input-bar">
+                <input
+                  type="text"
+                  className="claude-bottom-input"
+                  placeholder="My dog's name is Beans"
+                  value={quickMemoryText}
+                  onChange={(e) => setQuickMemoryText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleQuickAdd();
+                  }}
+                />
+                <button
+                  type="button"
+                  className="claude-up-btn"
+                  onClick={handleQuickAdd}
+                  aria-label="Save to memory"
+                >
+                  &uarr;
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : displayMode === "list" ? (
+        /* LAYER 1: Claude-style List View (matching image.png) */
+        <div className="claude-memory-shell">
+          <div className="claude-breadcrumb-bar">
+            <span style={{ color: "var(--text-secondary)" }}>&larr; Your Amal</span>
+            <span className="sep">/</span>
+            <span className="current">Memory</span>
+            <span className="tag" style={{ marginLeft: "auto" }}>
+              Layer 1 of 3 &middot; You &amp; Topics
+            </span>
+          </div>
+
+          <div className="claude-section-block">
+            <h3 className="claude-section-heading">You</h3>
+            <div className="claude-list-table">
+              {youItems.map((cat) => (
+                <div
+                  key={cat.id}
+                  className="claude-list-row"
+                  onClick={() => setActiveCategorySlug(cat.slug)}
+                >
+                  <div className="claude-list-title">{cat.label_en}</div>
+                  <div className="claude-list-summary">{cat.summary}</div>
+                  <div className="claude-list-date">
+                    {cat.last_updated_short || `Updated ${cat.last_updated}`}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="claude-section-block">
+            <h3 className="claude-section-heading">Topics</h3>
+            <div className="claude-list-table">
+              {topicItems.map((cat) => (
+                <div
+                  key={cat.id}
+                  className="claude-list-row"
+                  onClick={() => setActiveCategorySlug(cat.slug)}
+                >
+                  <div className="claude-list-title">{cat.label_en}</div>
+                  <div className="claude-list-summary">{cat.summary}</div>
+                  <div className="claude-list-date">
+                    {cat.last_updated_short || `Updated ${cat.last_updated}`}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       ) : (
-        /* Category Cards Grid (Exact Layout from image.png) */
+        /* LAYER 1: Cards View */
         <div className="cards-grid">
           {filterTab !== "core" &&
             filteredLifeAreas.map((la) => (
@@ -458,6 +700,11 @@ export default function MemoryDashboard({
                 onRenameLifeArea={onRenameLifeArea}
                 onRestoreLifeArea={onRestoreLifeArea}
                 onAddMemory={onAddMemory}
+                onOpenCategory={(slug) => setActiveCategorySlug(slug)}
+                onOpenSubcategory={(catSlug, subSlug) => {
+                  setActiveCategorySlug(catSlug);
+                  setActiveSubcategorySlug(subSlug);
+                }}
               />
             ))}
 
@@ -471,24 +718,13 @@ export default function MemoryDashboard({
                 onDeleteMemory={onDeleteMemory}
                 onDeleteCategory={onDeleteCategory}
                 onAddMemory={onAddMemory}
+                onOpenCategory={(slug) => setActiveCategorySlug(slug)}
+                onOpenSubcategory={(catSlug, subSlug) => {
+                  setActiveCategorySlug(catSlug);
+                  setActiveSubcategorySlug(subSlug);
+                }}
               />
             ))}
-
-          {filteredLifeAreas.length === 0 && filteredCoreCategories.length === 0 && (
-            <div className="minimal-panel" style={{ gridColumn: "1 / -1" }}>
-              <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>
-                No categories with active memories match the current filter. Switch to{" "}
-                <button
-                  className="btn btn-xs"
-                  onClick={() => setFilterTab("all")}
-                  style={{ margin: "0 4px" }}
-                >
-                  All Categories
-                </button>{" "}
-                or click <strong>Seed Demo</strong> in the top bar.
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>

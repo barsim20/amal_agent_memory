@@ -701,3 +701,295 @@ body {
   }
 }
 
+/* ============================================================================
+   Claude-Style 3-Layer Memory Navigation, List View & Detail View
+   (Matching image.png & image_2.png)
+   ============================================================================ */
+
+.claude-memory-shell {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 22px 26px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.claude-breadcrumb-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.claude-breadcrumb-trail {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+
+.claude-breadcrumb-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: inherit;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.claude-breadcrumb-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-subtle);
+}
+
+.claude-breadcrumb-current {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.claude-breadcrumb-sep {
+  color: var(--text-muted);
+  user-select: none;
+}
+
+/* Import Memory Banner (matching top of image.png) */
+.claude-import-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 18px;
+  border-radius: var(--radius-md);
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-subtle);
+  flex-wrap: wrap;
+}
+
+.claude-import-title {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.claude-import-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  max-width: 660px;
+}
+
+/* Section Group Headers ('You', 'Topics' in image.png) */
+.claude-section-block {
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+}
+
+.claude-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 4px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.claude-section-title {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+/* 3-Column Clickable List Rows (matching image.png) */
+.claude-list-table {
+  display: flex;
+  flex-direction: column;
+}
+
+.claude-list-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 210px) 1fr auto;
+  align-items: center;
+  gap: 18px;
+  padding: 15px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  background: transparent;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  text-align: left;
+  width: 100%;
+  font-family: inherit;
+  transition: background-color 0.14s ease;
+}
+
+.claude-list-row:hover {
+  background-color: var(--bg-subtle);
+}
+
+.claude-list-col-title {
+  font-size: 14.5px;
+  font-weight: 500;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.claude-list-col-summary {
+  font-size: 14px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.claude-list-col-date {
+  font-size: 13.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  text-align: right;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 680px) {
+  .claude-list-row {
+    grid-template-columns: 1fr auto;
+    gap: 6px;
+  }
+  .claude-list-col-summary {
+    grid-column: 1 / -1;
+    order: 3;
+  }
+}
+
+/* Detail View (Layer 2 Category & Layer 3 Subcategory — matching image_2.png) */
+.claude-detail-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 460px;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.claude-detail-top {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.claude-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.claude-detail-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.015em;
+}
+
+/* Subcategory Pill / Layer 3 Trigger Links */
+.subcat-layer-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 500;
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: all 0.14s ease;
+  font-family: inherit;
+}
+
+.subcat-layer-pill:hover,
+.subcat-layer-pill.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: #b7ded7;
+}
+
+/* Bottom Conversational Memory Input Bar (matching bottom of image_2.png) */
+.claude-bottom-input-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 18px;
+  border-radius: 999px;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-strong);
+  margin-top: 12px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.claude-bottom-input-bar:focus-within {
+  background: var(--bg-surface);
+  border-color: var(--text-primary);
+  box-shadow: 0 2px 8px rgba(20, 20, 19, 0.06);
+}
+
+.claude-bottom-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  color: var(--text-primary);
+  outline: none;
+  font-family: inherit;
+}
+
+.claude-bottom-input::placeholder {
+  color: var(--text-muted);
+}
+
+.claude-up-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: var(--text-primary);
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.claude-up-btn:hover {
+  background: var(--accent);
+}
+
+

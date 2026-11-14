@@ -6,6 +6,7 @@ urlpatterns = [
     re_path(r"^$", views.dashboard_view, name="memory_dashboard"),
     re_path(r"^memory/?$", views.dashboard_view, name="memory_page"),
     re_path(r"^api/memories/?$", views.api_memories, name="api_memories"),
+    re_path(r"^api/memories/import/?$", views.api_import_memories, name="api_import_memories"),
     re_path(r"^api/memories/delete-all/?$", views.api_delete_all, name="api_delete_all"),
     re_path(r"^api/memories/export/?$", views.api_export_memories, name="api_export_memories"),
     re_path(r"^api/download/zip/?$", views.api_download_repo_zip, name="api_download_repo_zip"),

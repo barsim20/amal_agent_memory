@@ -12,6 +12,8 @@ interface MemoryCategoryCardProps {
   onRenameLifeArea?: (categoryId: string, newName: string) => Promise<void>;
   onRestoreLifeArea?: (categoryId: string) => Promise<void>;
   onAddMemory?: (categorySlug: string, statement: string) => Promise<void>;
+  onOpenCategory?: (categorySlug: string) => void;
+  onOpenSubcategory?: (categorySlug: string, subcategorySlug: string) => void;
 }
 
 export default function MemoryCategoryCard({
@@ -23,6 +25,8 @@ export default function MemoryCategoryCard({
   onRenameLifeArea,
   onRestoreLifeArea,
   onAddMemory,
+  onOpenCategory,
+  onOpenSubcategory,
 }: MemoryCategoryCardProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState<string>("");
@@ -84,7 +88,13 @@ export default function MemoryCategoryCard({
             </div>
           ) : (
             <>
-              <h3 className="memory-card-title">{category.label_en}</h3>
+              <h3
+                className="memory-card-title"
+                style={{ cursor: onOpenCategory ? "pointer" : "default" }}
+                onClick={() => onOpenCategory?.(category.slug)}
+              >
+                {category.label_en}
+              </h3>
               {isLifeArea && <span className="tag life-area">Life Area</span>}
               {category.status === "archived" && <span className="tag">Archived</span>}
               {category.sensitivity === "consent" && (
@@ -95,6 +105,14 @@ export default function MemoryCategoryCard({
         </div>
 
         <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+          {onOpenCategory && (
+            <button
+              className="btn btn-xs"
+              onClick={() => onOpenCategory(category.slug)}
+            >
+              Open &rarr;
+            </button>
+          )}
           {isLifeArea && !renamingArea && onRenameLifeArea && (
             <button
               className="btn btn-xs"
@@ -133,6 +151,27 @@ export default function MemoryCategoryCard({
         <div className="memory-field-value">{category.summary}</div>
       </div>
 
+      {category.subcategories.length > 0 && (
+        <div className="memory-field-block">
+          <div className="memory-field-label">Layer 3 Subcategories (click to inspect)</div>
+          <div className="subcat-pills-row" style={{ marginTop: "6px" }}>
+            {category.subcategories.map((sub) => (
+              <button
+                key={sub.id}
+                type="button"
+                className="subcat-layer-pill"
+                onClick={() => onOpenSubcategory?.(category.slug, sub.slug)}
+              >
+                <span>{sub.label_en}</span>
+                <span className="subcat-count">
+                  {sub.memory_count ?? sub.memories?.length ?? 0}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="memory-field-block" style={{ marginBottom: 0 }}>
         <div className="memory-field-label">Details</div>
         {category.memories.length > 0 ? (
@@ -168,7 +207,28 @@ export default function MemoryCategoryCard({
                   </div>
                 ) : (
                   <div className="memory-bullet-row">
-                    <span>{mem.statement}</span>
+                    <div>
+                      <span>{mem.statement}</span>
+                      {mem.subcategory_label && onOpenSubcategory && (
+                        <button
+                          type="button"
+                          className="subcat-layer-pill"
+                          style={{
+                            padding: "1px 7px",
+                            fontSize: "11px",
+                            marginLeft: "6px",
+                          }}
+                          onClick={() =>
+                            onOpenSubcategory(
+                              category.slug,
+                              mem.subcategory_slug || "general"
+                            )
+                          }
+                        >
+                          {mem.subcategory_label} &rarr;
+                        </button>
+                      )}
+                    </div>
                     <div className="memory-bullet-actions">
                       <button
                         className="btn btn-xs"
@@ -198,9 +258,6 @@ export default function MemoryCategoryCard({
       <div className="memory-card-footer">
         <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
           {category.label_sw}
-          {category.subcategories.length > 0
-            ? ` · ${category.subcategories.map((s) => s.label_en).join(", ")}`
-            : ""}
         </span>
 
         {addingNote ? (

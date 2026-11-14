@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { CategoricalState } from "../types";
+import { CategoricalState, CategoryCardData } from "../types";
 
 interface ClientWorkspaceProps {
   initialState: CategoricalState;
@@ -15,6 +15,9 @@ const SAMPLE_PROMPTS = [
   "What do you remember about me?",
 ];
 
+const DEFAULT_IMPORT_PROMPT =
+  "Export all of your stored memories, preferences, teaching context, and ongoing topics about me as a bulleted list of concise third-person statements (one fact per line) so I can import them into Amal.";
+
 const INLINE_RUNTIME_SCRIPT = `
 (function() {
   if (window.__AMAL_RUNTIME_BOUND__) return;
@@ -22,10 +25,15 @@ const INLINE_RUNTIME_SCRIPT = `
 
   var state = window.__AMAL_INITIAL_STATE__ || null;
   var viewMode = "split";
+  var memoryDisplayMode = "list"; // "list" | "cards"
   var filterTab = "populated";
   var searchQuery = "";
   var showKeyBar = true;
   var creatingArea = false;
+  var creatingSubcat = false;
+  var showImportPanel = false;
+  var activeCategorySlug = null;     // Layer 2 slug
+  var activeSubcategorySlug = null;  // Layer 3 slug
   var chatHistory = [];
   var toastTimer = null;
   var messages = [
@@ -77,11 +85,10 @@ const INLINE_RUNTIME_SCRIPT = `
   function showMemoryToast(messageText) {
     var container = document.getElementById("amal-toast-container");
     if (!container) return;
-    var text = messageText || "Amal learned something new about you. Discover in memories";
     container.innerHTML =
       '<div class="amal-toast" role="status" aria-live="polite">' +
         '<div>' +
-          '<div style="font-weight:600;">Amal learned something new about you.</div>' +
+          '<div style="font-weight:600;">' + esc(messageText || "Amal learned something new about you.") + '</div>' +
           '<div style="font-size:12px; color:rgba(255,255,255,0.82); margin-top:2px;">Discover in memories</div>' +
         '</div>' +
         '<div class="amal-toast-actions">' +
@@ -125,6 +132,15 @@ const INLINE_RUNTIME_SCRIPT = `
     }
   }
 
+  function updateDisplayModeButtons() {
+    var btns = document.querySelectorAll("[data-display-mode]");
+    for (var i = 0; i < btns.length; i++) {
+      var dm = btns[i].getAttribute("data-display-mode");
+      if (dm === memoryDisplayMode) btns[i].classList.add("active");
+      else btns[i].classList.remove("active");
+    }
+  }
+
   function renderChatStream() {
     var stream = document.getElementById("chat-stream-container");
     if (!stream) return;
@@ -139,16 +155,72 @@ const INLINE_RUNTIME_SCRIPT = `
     stream.scrollTop = stream.scrollHeight;
   }
 
+  function getAllCategories() {
+    if (!state) return [];
+    var list = [];
+    var core = state.core_categories || [];
+    var las = state.life_areas || [];
+    for (var i = 0; i < core.length; i++) list.push(core[i]);
+    for (var j = 0; j < las.length; j++) list.push(las[j]);
+    return list;
+  }
+
+  function findCategoryBySlug(slug) {
+    if (!slug || !state) return null;
+    var all = getAllCategories();
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].slug === slug) return all[i];
+    }
+    return null;
+  }
+
+  function findSubcategoryBySlug(cat, subSlug) {
+    if (!cat || !subSlug) return null;
+    var subs = cat.subcategories || [];
+    for (var i = 0; i < subs.length; i++) {
+      if (subs[i].slug === subSlug) return subs[i];
+    }
+    return null;
+  }
+
+  function getYouAndTopicsGroups(matchesFn) {
+    var youItems = [];
+    var topicItems = [];
+    var youSlugs = {
+      preferences: true,
+      profile: true,
+      teaching_context: true,
+      classroom: true,
+      people: true,
+      wellbeing: true,
+      named_learners: true
+    };
+    var all = getAllCategories();
+    for (var i = 0; i < all.length; i++) {
+      var cat = all[i];
+      var isLa = Boolean(cat.is_life_area);
+      if (filterTab === "life_areas" && !isLa) continue;
+      if (filterTab === "populated" && (cat.memories || []).length === 0 && !isLa) continue;
+      if (matchesFn && !matchesFn(cat)) continue;
+
+      var sec = cat.section || (youSlugs[cat.slug] && !isLa ? "you" : "topics");
+      if (sec === "you") youItems.push(cat);
+      else topicItems.push(cat);
+    }
+    return { you: youItems, topics: topicItems };
+  }
+
   function renderCategoryCardHtml(cat, isLifeArea) {
     var html = '<article class="memory-card" id="category-card-' + esc(cat.slug) + '">';
     html += '<div class="memory-card-header">';
     html += '<div class="memory-card-title-group">';
-    html += '<h3 class="memory-card-title">' + esc(cat.label_en) + '</h3>';
+    html += '<h3 class="memory-card-title" style="cursor:pointer;" data-action="open-category" data-slug="' + esc(cat.slug) + '">' + esc(cat.label_en) + '</h3>';
     if (isLifeArea) html += '<span class="tag life-area">Life Area</span>';
     if (cat.status === "archived") html += '<span class="tag">Archived</span>';
     if (cat.sensitivity === "consent") html += '<span class="tag consent">Consent required</span>';
     html += '</div>';
     html += '<div style="display:flex; gap:6px; align-items:center;">';
+    html += '<button type="button" class="btn btn-xs" data-action="open-category" data-slug="' + esc(cat.slug) + '">Open &rarr;</button>';
     if (isLifeArea) {
       html += '<button type="button" class="btn btn-xs" data-action="rename-life-area" data-id="' + esc(cat.id) + '" data-label="' + esc(cat.label_en) + '">Rename</button>';
       if (cat.status === "archived") {
@@ -158,8 +230,23 @@ const INLINE_RUNTIME_SCRIPT = `
     html += '<button type="button" class="btn btn-danger-ghost" data-action="delete-category" data-id="' + esc(cat.id) + '" data-life-area="' + (isLifeArea ? "1" : "0") + '">Delete</button>';
     html += '</div></div>';
 
-    html += '<div class="memory-field-block"><div class="memory-field-label">Last updated</div><div class="memory-field-value">' + esc(cat.last_updated || "") + '</div></div>';
+    html += '<div class="memory-field-block"><div class="memory-field-label">Last updated</div><div class="memory-field-value">' + esc(cat.last_updated || "No memories saved yet") + '</div></div>';
     html += '<div class="memory-field-block"><div class="memory-field-label">Summary</div><div class="memory-field-value">' + esc(cat.summary || cat.description || "") + '</div></div>';
+
+    var subs = cat.subcategories || [];
+    if (subs.length > 0) {
+      html += '<div class="memory-field-block"><div class="memory-field-label">Layer 3 Subcategories (click to inspect)</div>';
+      html += '<div class="subcat-pills-row" style="margin-top:6px;">';
+      for (var sIdx = 0; sIdx < subs.length; sIdx++) {
+        var sc = subs[sIdx];
+        var cnt = sc.memory_count || (sc.memories ? sc.memories.length : 0);
+        html += '<button type="button" class="subcat-layer-pill" data-action="open-subcategory" data-cat-slug="' + esc(cat.slug) + '" data-sub-slug="' + esc(sc.slug) + '">';
+        html += '<span>' + esc(sc.label_en) + '</span>';
+        html += '<span class="subcat-count">' + cnt + '</span>';
+        html += '</button>';
+      }
+      html += '</div></div>';
+    }
 
     html += '<div class="memory-field-block" style="margin-bottom:0;"><div class="memory-field-label">Details</div>';
     var mems = cat.memories || [];
@@ -168,7 +255,11 @@ const INLINE_RUNTIME_SCRIPT = `
       for (var i = 0; i < mems.length; i++) {
         var m = mems[i];
         html += '<li class="memory-details-item"><div class="memory-bullet-row">';
-        html += '<span>' + esc(m.statement) + '</span>';
+        html += '<div><span>' + esc(m.statement) + '</span>';
+        if (m.subcategory_label) {
+          html += ' <button type="button" class="subcat-layer-pill" style="padding:1px 7px; font-size:11px; margin-left:6px;" data-action="open-subcategory" data-cat-slug="' + esc(cat.slug) + '" data-sub-slug="' + esc(m.subcategory_slug || "general") + '">' + esc(m.subcategory_label) + ' &rarr;</button>';
+        }
+        html += '</div>';
         html += '<div class="memory-bullet-actions" style="opacity:1;">';
         html += '<button type="button" class="btn btn-xs" data-action="edit-memory" data-id="' + esc(m.id) + '" data-statement="' + esc(m.statement) + '">Edit</button>';
         html += '<button type="button" class="btn btn-xs btn-danger-ghost" data-action="delete-memory" data-id="' + esc(m.id) + '">Delete</button>';
@@ -180,16 +271,382 @@ const INLINE_RUNTIME_SCRIPT = `
     }
     html += '</div>';
 
-    var subLabels = (cat.subcategories || []).map(function(s) { return s.label_en; }).join(", ");
     html += '<div class="memory-card-footer">';
-    html += '<span style="font-size:11.5px; color:var(--text-muted);">' + esc(cat.label_sw) + (subLabels ? " · " + esc(subLabels) : "") + '</span>';
+    html += '<span style="font-size:11.5px; color:var(--text-muted);">' + esc(cat.label_sw) + '</span>';
+    html += '<div style="display:flex; gap:6px;">';
     html += '<button type="button" class="btn btn-xs" data-action="add-detail" data-slug="' + esc(cat.slug) + '" data-label="' + esc(cat.label_en) + '">Add detail</button>';
-    html += '</div></article>';
+    html += '</div></div></article>';
+    return html;
+  }
+
+  function renderImportBannerAndModal() {
+    var html = '<div class="claude-import-banner">';
+    html += '<div class="claude-import-banner-text">';
+    html += '<div class="claude-import-banner-title">Import memory from other AI providers</div>';
+    html += '<div class="claude-import-banner-sub">Bring relevant context and data from another AI provider to Amal. We&#39;ll provide a prompt you can use to fetch the memory from your other account.</div>';
+    html += '</div>';
+    html += '<button type="button" class="btn" data-action="toggle-import-memory">' + (showImportPanel ? "Close import" : "Start import") + '</button>';
+    html += '</div>';
+
+    if (showImportPanel) {
+      html += '<div class="minimal-panel" style="margin-bottom:24px; display:flex; flex-direction:column; gap:12px;">';
+      html += '<div style="display:flex; justify-content:space-between; align-items:center;">';
+      html += '<strong style="font-size:14px;">Step 1: Copy this prompt to your other AI assistant (Claude, ChatGPT, Gemini)</strong>';
+      html += '<button type="button" class="btn btn-xs" data-action="copy-import-prompt">Copy prompt</button>';
+      html += '</div>';
+      html += '<pre class="mono-block" id="import-prompt-pre" style="margin:0;">' + esc('Export all of your stored memories, preferences, teaching context, and ongoing topics about me as a bulleted list of concise third-person statements (one fact per line) so I can import them into Amal.') + '</pre>';
+      html += '<strong style="font-size:14px;">Step 2: Paste the exported memories below (one bullet per line)</strong>';
+      html += '<textarea id="import-memories-textarea" class="input" rows="5" style="width:100%; font-family:var(--font-sans); resize:vertical;" placeholder="- Never use em dashes in any response or generated content&#10;- Prefers studying academic/course content in English&#10;- Built a Socratic tutor skill using the skill-creator system"></textarea>';
+      html += '<div style="display:flex; justify-content:flex-end; gap:8px;">';
+      html += '<button type="button" class="btn" data-action="toggle-import-memory">Cancel</button>';
+      html += '<button type="button" class="btn btn-primary" data-action="submit-import-memories">Import into Amal</button>';
+      html += '</div></div>';
+    }
+    return html;
+  }
+
+  function renderBottomMemoryInputBar(placeholderText, targetCatSlug, targetSubSlug) {
+    var ph = placeholderText || "My dog's name is Beans";
+    var html = '<div class="claude-bottom-input-wrap">';
+    html += '<div class="claude-bottom-input-bar">';
+    html += '<input type="text" id="claude-memory-quick-input" class="claude-bottom-input" placeholder="' + esc(ph) + '" data-cat-slug="' + esc(targetCatSlug || "") + '" data-sub-slug="' + esc(targetSubSlug || "") + '" />';
+    html += '<button type="button" class="claude-up-btn" data-action="submit-quick-memory" data-cat-slug="' + esc(targetCatSlug || "") + '" data-sub-slug="' + esc(targetSubSlug || "") + '" title="Save to memory" aria-label="Save to memory">&uarr;</button>';
+    html += '</div></div>';
+    return html;
+  }
+
+  function renderLayer1Overview(matchesFn) {
+    var groups = getYouAndTopicsGroups(matchesFn);
+    var youList = groups.you;
+    var topicList = groups.topics;
+    var html = '<div class="claude-memory-shell">';
+
+    // Top breadcrumb bar matching image.png
+    html += '<div class="claude-breadcrumb-bar">';
+    html += '<span style="color:var(--text-secondary);">&larr; Your Amal</span>';
+    html += '<span class="sep">/</span>';
+    html += '<span class="current">Memory</span>';
+    html += '<span class="tag" style="margin-left:auto;">Layer 1 of 3 &middot; You &amp; Topics</span>';
+    html += '</div>';
+
+    html += renderImportBannerAndModal();
+
+    if (memoryDisplayMode === "list") {
+      // Claude-style List View (image.png)
+      html += '<div class="claude-section-block">';
+      html += '<h3 class="claude-section-heading">You</h3>';
+      if (youList.length > 0) {
+        html += '<div class="claude-list-table" role="list">';
+        for (var i = 0; i < youList.length; i++) {
+          var yc = youList[i];
+          var yDate = yc.last_updated_short || (yc.memories && yc.memories.length > 0 ? ("Updated " + yc.last_updated) : "Empty");
+          html += '<div class="claude-list-row" role="listitem" tabindex="0" data-action="open-category" data-slug="' + esc(yc.slug) + '">';
+          html += '<div class="claude-list-title">' + esc(yc.label_en) + '</div>';
+          html += '<div class="claude-list-summary">' + esc(yc.summary || yc.description || "") + '</div>';
+          html += '<div class="claude-list-date">' + esc(yDate) + '</div>';
+          html += '</div>';
+        }
+        html += '</div>';
+      } else {
+        html += '<div style="font-size:13.5px; color:var(--text-muted); padding:8px 0;">No populated categories under You match the current filter.</div>';
+      }
+      html += '</div>';
+
+      html += '<div class="claude-section-block">';
+      html += '<h3 class="claude-section-heading">Topics</h3>';
+      if (topicList.length > 0) {
+        html += '<div class="claude-list-table" role="list">';
+        for (var j = 0; j < topicList.length; j++) {
+          var tc = topicList[j];
+          var tDate = tc.last_updated_short || (tc.memories && tc.memories.length > 0 ? ("Updated " + tc.last_updated) : "Empty");
+          html += '<div class="claude-list-row" role="listitem" tabindex="0" data-action="open-category" data-slug="' + esc(tc.slug) + '">';
+          html += '<div class="claude-list-title">' + esc(tc.label_en) + '</div>';
+          html += '<div class="claude-list-summary">' + esc(tc.summary || tc.description || "") + '</div>';
+          html += '<div class="claude-list-date">' + esc(tDate) + '</div>';
+          html += '</div>';
+        }
+        html += '</div>';
+      } else {
+        html += '<div style="font-size:13.5px; color:var(--text-muted); padding:8px 0;">No populated topics match the current filter.</div>';
+      }
+      html += '</div>';
+    } else {
+      // Cards View grouped by You and Topics
+      html += '<div class="claude-section-block">';
+      html += '<h3 class="claude-section-heading">You</h3>';
+      if (youList.length > 0) {
+        html += '<div class="cards-grid">';
+        for (var k = 0; k < youList.length; k++) {
+          html += renderCategoryCardHtml(youList[k], Boolean(youList[k].is_life_area));
+        }
+        html += '</div>';
+      } else {
+        html += '<div style="font-size:13.5px; color:var(--text-muted); padding:8px 0;">No populated cards under You.</div>';
+      }
+      html += '</div>';
+
+      html += '<div class="claude-section-block">';
+      html += '<h3 class="claude-section-heading">Topics</h3>';
+      if (topicList.length > 0) {
+        html += '<div class="cards-grid">';
+        for (var m = 0; m < topicList.length; m++) {
+          html += renderCategoryCardHtml(topicList[m], Boolean(topicList[m].is_life_area));
+        }
+        html += '</div>';
+      } else {
+        html += '<div style="font-size:13.5px; color:var(--text-muted); padding:8px 0;">No populated cards under Topics.</div>';
+      }
+      html += '</div>';
+    }
+
+    if (youList.length === 0 && topicList.length === 0) {
+      html += '<div class="minimal-panel"><div style="font-size:14px; color:var(--text-secondary);">No categories with active memories match the current filter. Click <button type="button" class="btn btn-xs" data-filter-tab="all">All Categories</button> or click <strong>Seed Demo</strong> in the top bar.</div></div>';
+    }
+
+    html += renderBottomMemoryInputBar("My dog's name is Beans", "", "");
+    html += '</div>';
+    return html;
+  }
+
+  function renderLayer2CategoryDetail(cat) {
+    var isLifeArea = Boolean(cat.is_life_area);
+    var subs = cat.subcategories || [];
+    var mems = cat.memories || [];
+
+    var html = '<div class="claude-memory-shell"><div class="claude-detail-view">';
+
+    // Back navigation matching image_2.png ("<- Memory")
+    html += '<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">';
+    html += '<button type="button" class="claude-back-link" style="margin-bottom:0;" data-action="back-to-layer-1">&larr; Memory</button>';
+    html += '<span class="tag">Layer 2 of 3 &middot; ' + (cat.section === "you" ? "You" : "Topics") + ' / ' + esc(cat.label_en) + '</span>';
+    html += '</div>';
+
+    // Header row: Category title on left, Delete & Rename on right (image_2.png)
+    html += '<div class="claude-detail-header" id="layer2-detail-header">';
+    html += '<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">';
+    html += '<h2 class="claude-detail-title">' + esc(cat.label_en) + '</h2>';
+    if (isLifeArea) html += '<span class="tag life-area">Life Area</span>';
+    if (cat.sensitivity === "consent") html += '<span class="tag consent">Consent required</span>';
+    html += '</div>';
+    html += '<div class="claude-detail-actions">';
+    html += '<button type="button" class="btn btn-danger-ghost" data-action="delete-category" data-id="' + esc(cat.id) + '" data-life-area="' + (isLifeArea ? "1" : "0") + '">Delete</button>';
+    if (isLifeArea) {
+      html += '<button type="button" class="btn" data-action="rename-life-area" data-id="' + esc(cat.id) + '" data-label="' + esc(cat.label_en) + '">Rename</button>';
+    } else {
+      html += '<button type="button" class="btn" data-action="toggle-new-subcategory" data-cat-id="' + esc(cat.id) + '">+ Subcategory</button>';
+    }
+    html += '</div></div>';
+
+    // Last updated
+    html += '<div class="claude-detail-section">';
+    html += '<div class="claude-detail-label">Last updated</div>';
+    html += '<div class="claude-detail-text">' + esc(cat.last_updated || "No memories saved yet") + '</div>';
+    html += '</div>';
+
+    // Summary
+    html += '<div class="claude-detail-section">';
+    html += '<div class="claude-detail-label">Summary</div>';
+    html += '<div class="claude-detail-text">' + esc(cat.summary || cat.description || "") + '</div>';
+    html += '</div>';
+
+    // Layer 3 Subcategories section (clickable to drill into Layer 3)
+    html += '<div class="claude-detail-section">';
+    html += '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">';
+    html += '<div class="claude-detail-label" style="margin-bottom:0;">Subcategories (Click to open Layer 3)</div>';
+    html += '<button type="button" class="btn btn-xs" data-action="toggle-new-subcategory" data-cat-id="' + esc(cat.id) + '">' + (creatingSubcat ? "Cancel" : "+ New Subcategory") + '</button>';
+    html += '</div>';
+
+    if (creatingSubcat) {
+      html += '<div class="minimal-panel" style="margin-bottom:12px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">';
+      html += '<input type="text" id="new-subcat-en-input" class="input" placeholder="Subcategory name (e.g. Prompting workflows)" style="flex:1; min-width:180px;" />';
+      html += '<input type="text" id="new-subcat-sw-input" class="input" placeholder="Swahili label (optional)" style="width:180px;" />';
+      html += '<button type="button" class="btn btn-xs btn-primary" data-action="create-subcategory-submit" data-parent-id="' + esc(cat.id) + '">Add Subcategory</button>';
+      html += '</div>';
+    }
+
+    if (subs.length > 0) {
+      if (memoryDisplayMode === "list") {
+        html += '<div class="claude-list-table" role="list" style="margin-top:4px;">';
+        for (var s = 0; s < subs.length; s++) {
+          var sub = subs[s];
+          var subCount = sub.memory_count || (sub.memories ? sub.memories.length : 0);
+          html += '<div class="claude-list-row" role="listitem" tabindex="0" data-action="open-subcategory" data-cat-slug="' + esc(cat.slug) + '" data-sub-slug="' + esc(sub.slug) + '">';
+          html += '<div class="claude-list-title">' + esc(sub.label_en) + ' <span class="tag" style="margin-left:4px;">' + subCount + '</span></div>';
+          html += '<div class="claude-list-summary">' + esc(sub.summary || ("No details in " + sub.label_en + " yet.")) + '</div>';
+          html += '<div class="claude-list-date">' + esc(sub.last_updated_short || "Open Layer 3 &rarr;") + '</div>';
+          html += '</div>';
+        }
+        html += '</div>';
+      } else {
+        html += '<div class="cards-grid" style="margin-top:8px;">';
+        for (var scIdx = 0; scIdx < subs.length; scIdx++) {
+          var scObj = subs[scIdx];
+          var scCount = scObj.memory_count || (scObj.memories ? scObj.memories.length : 0);
+          html += '<article class="memory-card" style="cursor:pointer;" data-action="open-subcategory" data-cat-slug="' + esc(cat.slug) + '" data-sub-slug="' + esc(scObj.slug) + '">';
+          html += '<div class="memory-card-header"><div class="memory-card-title-group"><h3 class="memory-card-title">' + esc(scObj.label_en) + '</h3><span class="tag">' + scCount + ' details</span></div>';
+          html += '<span style="font-size:12px; color:var(--accent); font-weight:500;">Layer 3 &rarr;</span></div>';
+          html += '<div class="memory-field-block" style="margin-bottom:0;"><div class="memory-field-value">' + esc(scObj.summary || "") + '</div></div>';
+          html += '</article>';
+        }
+        html += '</div>';
+      }
+    }
+    html += '</div>';
+
+    // Details section matching image_2.png
+    html += '<div class="claude-detail-section">';
+    html += '<div class="claude-detail-label">Details</div>';
+    if (mems.length > 0) {
+      if (memoryDisplayMode === "list") {
+        html += '<ul class="claude-detail-bullets">';
+        for (var i = 0; i < mems.length; i++) {
+          var m = mems[i];
+          html += '<li><div class="memory-bullet-row">';
+          html += '<div><span>' + esc(m.statement) + '</span>';
+          if (m.subcategory_label) {
+            html += ' <button type="button" class="subcat-layer-pill" style="padding:1px 8px; font-size:11px; margin-left:6px;" data-action="open-subcategory" data-cat-slug="' + esc(cat.slug) + '" data-sub-slug="' + esc(m.subcategory_slug || "general") + '">' + esc(m.subcategory_label) + '</button>';
+          }
+          html += '</div>';
+          html += '<div class="memory-bullet-actions" style="opacity:1;">';
+          html += '<button type="button" class="btn btn-xs" data-action="edit-memory" data-id="' + esc(m.id) + '" data-statement="' + esc(m.statement) + '">Edit</button>';
+          html += '<button type="button" class="btn btn-xs btn-danger-ghost" data-action="delete-memory" data-id="' + esc(m.id) + '">Delete</button>';
+          html += '</div></div></li>';
+        }
+        html += '</ul>';
+      } else {
+        html += '<div class="cards-grid" style="margin-top:8px;">';
+        for (var mIdx = 0; mIdx < mems.length; mIdx++) {
+          var memCard = mems[mIdx];
+          html += '<article class="memory-card">';
+          html += '<div class="memory-bullet-row" style="margin-bottom:8px;"><strong>' + esc(memCard.statement) + '</strong></div>';
+          html += '<div style="display:flex; justify-content:space-between; align-items:center; font-size:12px; color:var(--text-muted);">';
+          html += '<span>' + esc(memCard.subcategory_label || "General") + ' &middot; ' + esc(memCard.source) + '</span>';
+          html += '<div style="display:flex; gap:6px;">';
+          html += '<button type="button" class="btn btn-xs" data-action="edit-memory" data-id="' + esc(memCard.id) + '" data-statement="' + esc(memCard.statement) + '">Edit</button>';
+          html += '<button type="button" class="btn btn-xs btn-danger-ghost" data-action="delete-memory" data-id="' + esc(memCard.id) + '">Delete</button>';
+          html += '</div></div></article>';
+        }
+        html += '</div>';
+      }
+    } else {
+      html += '<div style="font-size:14px; color:var(--text-muted);">No details saved in ' + esc(cat.label_en) + ' yet. Use the input bar below to add one.</div>';
+    }
+    html += '</div>';
+
+    // Bottom pill input bar matching image_2.png ("My dog's name is Beans" + up arrow)
+    html += renderBottomMemoryInputBar("My dog's name is Beans", cat.slug, "");
+    html += '</div></div>';
+    return html;
+  }
+
+  function renderLayer3SubcategoryDetail(cat, sub) {
+    var mems = sub.memories || [];
+    var siblingSubs = cat.subcategories || [];
+
+    var html = '<div class="claude-memory-shell"><div class="claude-detail-view">';
+
+    // Breadcrumb & Back navigation to Layer 2
+    html += '<div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:16px;">';
+    html += '<div style="display:flex; align-items:center; gap:8px; font-size:13.5px;">';
+    html += '<button type="button" class="claude-back-link" style="margin-bottom:0;" data-action="open-category" data-slug="' + esc(cat.slug) + '">&larr; ' + esc(cat.label_en) + '</button>';
+    html += '<span style="color:var(--text-muted);">/</span>';
+    html += '<button type="button" class="claude-back-link" style="margin-bottom:0;" data-action="back-to-layer-1">Memory</button>';
+    html += '<span style="color:var(--text-muted);">/</span>';
+    html += '<button type="button" class="claude-back-link" style="margin-bottom:0;" data-action="open-category" data-slug="' + esc(cat.slug) + '">' + esc(cat.label_en) + '</button>';
+    html += '<span style="color:var(--text-muted);">/</span>';
+    html += '<strong style="color:var(--text-primary);">' + esc(sub.label_en) + '</strong>';
+    html += '</div>';
+    html += '<span class="tag life-area">Layer 3 of 3 &middot; Subcategory</span>';
+    html += '</div>';
+
+    // Sibling subcategory switcher bar
+    if (siblingSubs.length > 1) {
+      html += '<div class="subcat-pills-row" style="margin-bottom:20px;">';
+      for (var i = 0; i < siblingSubs.length; i++) {
+        var sib = siblingSubs[i];
+        var isCurrent = sib.slug === sub.slug;
+        var cnt = sib.memory_count || (sib.memories ? sib.memories.length : 0);
+        html += '<button type="button" class="subcat-layer-pill ' + (isCurrent ? 'active' : '') + '" data-action="open-subcategory" data-cat-slug="' + esc(cat.slug) + '" data-sub-slug="' + esc(sib.slug) + '">';
+        html += '<span>' + esc(sib.label_en) + '</span>';
+        html += '<span class="subcat-count">' + cnt + '</span>';
+        html += '</button>';
+      }
+      html += '</div>';
+    }
+
+    // Header row: Subcategory title on left, Delete & Rename on right
+    html += '<div class="claude-detail-header" id="layer3-detail-header">';
+    html += '<div>';
+    html += '<h2 class="claude-detail-title">' + esc(sub.label_en) + '</h2>';
+    if (sub.label_sw) {
+      html += '<div style="font-size:12.5px; color:var(--text-muted); margin-top:2px;">' + esc(sub.label_sw) + ' &middot; Subcategory of ' + esc(cat.label_en) + '</div>';
+    }
+    html += '</div>';
+    html += '<div class="claude-detail-actions">';
+    if (sub.id && String(sub.id).indexOf("virtual-") !== 0) {
+      html += '<button type="button" class="btn btn-danger-ghost" data-action="delete-subcategory" data-id="' + esc(sub.id) + '" data-cat-slug="' + esc(cat.slug) + '">Delete</button>';
+      html += '<button type="button" class="btn" data-action="rename-subcategory" data-id="' + esc(sub.id) + '" data-label="' + esc(sub.label_en) + '">Rename</button>';
+    }
+    html += '</div></div>';
+
+    // Last updated
+    html += '<div class="claude-detail-section">';
+    html += '<div class="claude-detail-label">Last updated</div>';
+    html += '<div class="claude-detail-text">' + esc(sub.last_updated || "No memories saved yet") + '</div>';
+    html += '</div>';
+
+    // Summary
+    html += '<div class="claude-detail-section">';
+    html += '<div class="claude-detail-label">Summary</div>';
+    html += '<div class="claude-detail-text">' + esc(sub.summary || "") + '</div>';
+    html += '</div>';
+
+    // Details in Layer 3
+    html += '<div class="claude-detail-section">';
+    html += '<div class="claude-detail-label">Details (' + mems.length + ')</div>';
+    if (mems.length > 0) {
+      if (memoryDisplayMode === "list") {
+        html += '<ul class="claude-detail-bullets">';
+        for (var j = 0; j < mems.length; j++) {
+          var m = mems[j];
+          html += '<li><div class="memory-bullet-row">';
+          html += '<div><div>' + esc(m.statement) + '</div>';
+          html += '<div style="font-size:11.5px; color:var(--text-muted); margin-top:2px;">Source: ' + esc(m.source) + ' &middot; Surface: ' + esc(m.surface) + ' &middot; Confidence: ' + Math.round((m.confidence || 1) * 100) + '%</div></div>';
+          html += '<div class="memory-bullet-actions" style="opacity:1;">';
+          html += '<button type="button" class="btn btn-xs" data-action="edit-memory" data-id="' + esc(m.id) + '" data-statement="' + esc(m.statement) + '">Edit</button>';
+          html += '<button type="button" class="btn btn-xs btn-danger-ghost" data-action="delete-memory" data-id="' + esc(m.id) + '">Delete</button>';
+          html += '</div></div></li>';
+        }
+        html += '</ul>';
+      } else {
+        html += '<div class="cards-grid" style="margin-top:8px;">';
+        for (var k = 0; k < mems.length; k++) {
+          var mc = mems[k];
+          html += '<article class="memory-card">';
+          html += '<div class="memory-bullet-row" style="margin-bottom:8px;"><strong>' + esc(mc.statement) + '</strong></div>';
+          html += '<div style="display:flex; justify-content:space-between; align-items:center; font-size:12px; color:var(--text-muted);">';
+          html += '<span>Source: ' + esc(mc.source) + ' &middot; Confidence: ' + Math.round((mc.confidence || 1) * 100) + '%</span>';
+          html += '<div style="display:flex; gap:6px;">';
+          html += '<button type="button" class="btn btn-xs" data-action="edit-memory" data-id="' + esc(mc.id) + '" data-statement="' + esc(mc.statement) + '">Edit</button>';
+          html += '<button type="button" class="btn btn-xs btn-danger-ghost" data-action="delete-memory" data-id="' + esc(mc.id) + '">Delete</button>';
+          html += '</div></div></article>';
+        }
+        html += '</div>';
+      }
+    } else {
+      html += '<div style="font-size:14px; color:var(--text-muted);">No details saved in ' + esc(sub.label_en) + ' yet. Use the input bar below to add a memory to this subcategory.</div>';
+    }
+    html += '</div>';
+
+    // Bottom pill input bar scoped to this Layer 3 subcategory
+    html += renderBottomMemoryInputBar("My dog's name is Beans", cat.slug, sub.slug);
+    html += '</div></div>';
     return html;
   }
 
   function renderDashboard() {
     if (!state) return;
+    updateDisplayModeButtons();
 
     var brandSub = document.getElementById("brand-subtitle-text");
     if (brandSub && state.teacher) {
@@ -309,6 +766,28 @@ const INLINE_RUNTIME_SCRIPT = `
       return;
     }
 
+    // Check if we are in Layer 2 or Layer 3
+    if (activeCategorySlug) {
+      var activeCat = findCategoryBySlug(activeCategorySlug);
+      if (!activeCat) {
+        activeCategorySlug = null;
+        activeSubcategorySlug = null;
+      } else if (activeSubcategorySlug) {
+        var activeSub = findSubcategoryBySlug(activeCat, activeSubcategorySlug);
+        if (activeSub) {
+          bodyEl.innerHTML = renderLayer3SubcategoryDetail(activeCat, activeSub);
+          return;
+        } else {
+          activeSubcategorySlug = null;
+          bodyEl.innerHTML = renderLayer2CategoryDetail(activeCat);
+          return;
+        }
+      } else {
+        bodyEl.innerHTML = renderLayer2CategoryDetail(activeCat);
+        return;
+      }
+    }
+
     var q = (searchQuery || "").trim().toLowerCase();
     function matches(cat) {
       if (!q) return true;
@@ -318,33 +797,14 @@ const INLINE_RUNTIME_SCRIPT = `
       for (var k = 0; k < ms.length; k++) {
         if ((ms[k].statement || "").toLowerCase().indexOf(q) !== -1) return true;
       }
+      var subs = cat.subcategories || [];
+      for (var u = 0; u < subs.length; u++) {
+        if ((subs[u].label_en || "").toLowerCase().indexOf(q) !== -1) return true;
+      }
       return false;
     }
 
-    var cardsHtml = '<div class="cards-grid">';
-    var countRendered = 0;
-    if (filterTab !== "core") {
-      for (var l = 0; l < lifeAreas.length; l++) {
-        if (matches(lifeAreas[l])) {
-          cardsHtml += renderCategoryCardHtml(lifeAreas[l], true);
-          countRendered++;
-        }
-      }
-    }
-    if (filterTab !== "life_areas") {
-      for (var cIdx = 0; cIdx < coreCats.length; cIdx++) {
-        var cc = coreCats[cIdx];
-        if (!matches(cc)) continue;
-        if (filterTab === "populated" && (cc.memories || []).length === 0) continue;
-        cardsHtml += renderCategoryCardHtml(cc, false);
-        countRendered++;
-      }
-    }
-    if (countRendered === 0) {
-      cardsHtml += '<div class="minimal-panel" style="grid-column: 1 / -1;"><div style="font-size:14px; color:var(--text-secondary);">No categories with active memories match the current filter. Click <button type="button" class="btn btn-xs" data-filter-tab="all">All Categories</button> or click <strong>Seed Demo</strong> in the top bar.</div></div>';
-    }
-    cardsHtml += '</div>';
-    bodyEl.innerHTML = cardsHtml;
+    bodyEl.innerHTML = renderLayer1Overview(matches);
   }
 
   async function apiCall(url, method, payload) {
@@ -355,6 +815,30 @@ const INLINE_RUNTIME_SCRIPT = `
     }
     var res = await fetch(url, opts);
     return await res.json();
+  }
+
+  async function submitQuickMemoryInput(catSlug, subSlug) {
+    var inp = document.getElementById("claude-memory-quick-input");
+    var val = (inp && inp.value.trim()) || "";
+    if (!val) return;
+    if (inp) inp.value = "";
+
+    var targetSlug = catSlug || activeCategorySlug || "preferences";
+    var addData = await apiCall("/api/memories", "POST", {
+      teacher_id: getTeacherId(),
+      statement: val,
+      category_slug: targetSlug,
+      subcategory_slug: subSlug || activeSubcategorySlug || "",
+      source: "stated",
+      surface: "web",
+      created_by: "teacher",
+      explicit_consent_granted: true
+    });
+    if (addData && addData.state) {
+      state = addData.state;
+      renderDashboard();
+      showMemoryToast("Saved to " + targetSlug.replace(/_/g, " "));
+    }
   }
 
   async function sendChat(text) {
@@ -414,10 +898,22 @@ const INLINE_RUNTIME_SCRIPT = `
       return;
     }
 
+    var dispBtn = target.closest("[data-display-mode]");
+    if (dispBtn) {
+      e.preventDefault();
+      memoryDisplayMode = dispBtn.getAttribute("data-display-mode") || "list";
+      renderDashboard();
+      return;
+    }
+
     var tabBtn = target.closest("[data-filter-tab]");
     if (tabBtn) {
       e.preventDefault();
       filterTab = tabBtn.getAttribute("data-filter-tab") || "populated";
+      if (filterTab === "system") {
+        activeCategorySlug = null;
+        activeSubcategorySlug = null;
+      }
       renderDashboard();
       return;
     }
@@ -434,6 +930,161 @@ const INLINE_RUNTIME_SCRIPT = `
     if (!actBtn) return;
     e.preventDefault();
     var action = actBtn.getAttribute("data-action");
+
+    if (action === "open-category") {
+      var slugToOpen = actBtn.getAttribute("data-slug");
+      if (slugToOpen) {
+        if (filterTab === "system") filterTab = "populated";
+        activeCategorySlug = slugToOpen;
+        activeSubcategorySlug = null;
+        creatingSubcat = false;
+        renderDashboard();
+      }
+      return;
+    }
+
+    if (action === "open-subcategory") {
+      var pSlug = actBtn.getAttribute("data-cat-slug") || activeCategorySlug;
+      var sSlug = actBtn.getAttribute("data-sub-slug");
+      if (pSlug && sSlug) {
+        if (filterTab === "system") filterTab = "populated";
+        activeCategorySlug = pSlug;
+        activeSubcategorySlug = sSlug;
+        renderDashboard();
+      }
+      return;
+    }
+
+    if (action === "back-to-layer-1") {
+      activeCategorySlug = null;
+      activeSubcategorySlug = null;
+      creatingSubcat = false;
+      renderDashboard();
+      return;
+    }
+
+    if (action === "toggle-import-memory") {
+      showImportPanel = !showImportPanel;
+      renderDashboard();
+      return;
+    }
+
+    if (action === "copy-import-prompt") {
+      var promptStr = 'Export all of your stored memories, preferences, teaching context, and ongoing topics about me as a bulleted list of concise third-person statements (one fact per line) so I can import them into Amal.';
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(promptStr);
+        }
+      } catch (err) {}
+      actBtn.textContent = "Copied!";
+      setTimeout(function() { actBtn.textContent = "Copy prompt"; }, 1400);
+      return;
+    }
+
+    if (action === "submit-import-memories") {
+      var ta = document.getElementById("import-memories-textarea");
+      var rawText = (ta && ta.value.trim()) || "";
+      if (!rawText) return;
+      actBtn.textContent = "Importing...";
+      var impRes = await apiCall("/api/memories/import", "POST", {
+        teacher_id: getTeacherId(),
+        raw_text: rawText,
+        provider: "external_ai"
+      });
+      showImportPanel = false;
+      if (impRes && impRes.state) {
+        state = impRes.state;
+        renderDashboard();
+        showMemoryToast("Imported " + (impRes.imported_count || 0) + " memories into Amal.");
+      }
+      return;
+    }
+
+    if (action === "submit-quick-memory") {
+      var cSlug = actBtn.getAttribute("data-cat-slug") || "";
+      var subSlug = actBtn.getAttribute("data-sub-slug") || "";
+      await submitQuickMemoryInput(cSlug, subSlug);
+      return;
+    }
+
+    if (action === "toggle-new-subcategory") {
+      creatingSubcat = !creatingSubcat;
+      renderDashboard();
+      return;
+    }
+
+    if (action === "create-subcategory-submit") {
+      var parentId = actBtn.getAttribute("data-parent-id");
+      var subEnEl = document.getElementById("new-subcat-en-input");
+      var subSwEl = document.getElementById("new-subcat-sw-input");
+      var subEn = (subEnEl && subEnEl.value.trim()) || "";
+      var subSw = (subSwEl && subSwEl.value.trim()) || "";
+      if (!subEn || !parentId) return;
+      var subRes = await apiCall("/api/life-areas", "POST", {
+        teacher_id: getTeacherId(),
+        action: "create_subcategory",
+        parent_id: parentId,
+        label_en: subEn,
+        label_sw: subSw
+      });
+      creatingSubcat = false;
+      if (subRes && subRes.state) {
+        state = subRes.state;
+        if (subRes.category && subRes.category.slug) {
+          activeSubcategorySlug = subRes.category.slug;
+        }
+        renderDashboard();
+      }
+      return;
+    }
+
+    if (action === "rename-subcategory") {
+      var subId = actBtn.getAttribute("data-id");
+      var oldSubLabel = actBtn.getAttribute("data-label") || "";
+      var hEl = document.getElementById("layer3-detail-header");
+      if (!hEl) return;
+      hEl.innerHTML =
+        '<div style="display:flex; gap:8px; width:100%; align-items:center;">' +
+        '<input type="text" class="input" style="flex:1;" value="' + esc(oldSubLabel) + '" data-rename-sub-input="' + esc(subId) + '" />' +
+        '<button type="button" class="btn btn-xs btn-primary" data-action="save-rename-subcategory" data-id="' + esc(subId) + '">Save</button>' +
+        '<button type="button" class="btn btn-xs" data-action="cancel-inline">Cancel</button>' +
+        '</div>';
+      return;
+    }
+
+    if (action === "save-rename-subcategory") {
+      var rSubId = actBtn.getAttribute("data-id");
+      var rSubInp = document.querySelector('[data-rename-sub-input="' + rSubId + '"]');
+      var nextSubLabel = (rSubInp && rSubInp.value.trim()) || "";
+      if (!nextSubLabel) {
+        renderDashboard();
+        return;
+      }
+      var rSubData = await apiCall("/api/life-areas", "POST", {
+        teacher_id: getTeacherId(),
+        action: "rename_subcategory",
+        category_id: rSubId,
+        label_en: nextSubLabel
+      });
+      if (rSubData && rSubData.state) {
+        state = rSubData.state;
+        renderDashboard();
+      }
+      return;
+    }
+
+    if (action === "delete-subcategory") {
+      var delSubId = actBtn.getAttribute("data-id");
+      var delSubRes = await apiCall("/api/categories/" + delSubId + "/clear", "POST", {
+        teacher_id: getTeacherId()
+      });
+      activeSubcategorySlug = null;
+      if (delSubRes && delSubRes.state) {
+        state = delSubRes.state;
+        renderDashboard();
+      }
+      return;
+    }
 
     if (action === "toggle-api-key") {
       showKeyBar = !showKeyBar;
@@ -494,6 +1145,8 @@ const INLINE_RUNTIME_SCRIPT = `
       var res = await apiCall("/api/memories?teacher_id=" + encodeURIComponent(getTeacherId()), "GET");
       if (res && res.teacher) {
         state = res;
+        activeCategorySlug = null;
+        activeSubcategorySlug = null;
         renderDashboard();
       }
       return;
@@ -505,6 +1158,8 @@ const INLINE_RUNTIME_SCRIPT = `
         var sData = await apiCall("/api/seed-demo", "POST", { teacher_id: getTeacherId() });
         if (sData && sData.state) {
           state = sData.state;
+          activeCategorySlug = null;
+          activeSubcategorySlug = null;
           renderDashboard();
         }
       } finally {
@@ -654,6 +1309,10 @@ const INLINE_RUNTIME_SCRIPT = `
       var resCat = isLa
         ? await apiCall("/api/life-areas", "POST", { teacher_id: getTeacherId(), action: "delete", category_id: catId })
         : await apiCall("/api/categories/" + catId + "/clear", "POST", { teacher_id: getTeacherId() });
+      if (isLa) {
+        activeCategorySlug = null;
+        activeSubcategorySlug = null;
+      }
       if (resCat && resCat.state) {
         state = resCat.state;
         renderDashboard();
@@ -664,7 +1323,7 @@ const INLINE_RUNTIME_SCRIPT = `
     if (action === "rename-life-area") {
       var laId = actBtn.getAttribute("data-id");
       var oldName = actBtn.getAttribute("data-label") || "";
-      var headerEl = actBtn.closest(".memory-card-header");
+      var headerEl = actBtn.closest(".memory-card-header") || document.getElementById("layer2-detail-header");
       if (!headerEl) return;
       headerEl.innerHTML =
         '<div style="display:flex; gap:6px; width:100%; align-items:center;">' +
@@ -784,6 +1443,8 @@ const INLINE_RUNTIME_SCRIPT = `
       });
       if (daData && daData.state) {
         state = daData.state;
+        activeCategorySlug = null;
+        activeSubcategorySlug = null;
         renderDashboard();
       }
       return;
@@ -795,11 +1456,19 @@ const INLINE_RUNTIME_SCRIPT = `
       e.preventDefault();
       sendChat(e.target.value);
     }
+    if (e.key === "Enter" && e.target && e.target.id === "claude-memory-quick-input") {
+      e.preventDefault();
+      var cSlug = e.target.getAttribute("data-cat-slug") || "";
+      var sSlug = e.target.getAttribute("data-sub-slug") || "";
+      submitQuickMemoryInput(cSlug, sSlug);
+    }
     if (e.key === "Enter" && e.target && e.target.id === "teacher-id-input") {
       e.preventDefault();
       apiCall("/api/memories?teacher_id=" + encodeURIComponent(getTeacherId()), "GET").then(function(res) {
         if (res && res.teacher) {
           state = res;
+          activeCategorySlug = null;
+          activeSubcategorySlug = null;
           renderDashboard();
         }
       });
@@ -833,8 +1502,27 @@ export default function ClientWorkspace({ initialState }: ClientWorkspaceProps) 
     initialState.life_areas.reduce((acc, c) => acc + c.memories.length, 0) +
     initialState.core_categories.reduce((acc, c) => acc + c.memories.length, 0);
 
-  const populatedCoreCategories = initialState.core_categories.filter(
-    (cat) => cat.memories.length > 0
+  const youSlugSet = new Set([
+    "preferences",
+    "profile",
+    "teaching_context",
+    "classroom",
+    "people",
+    "wellbeing",
+    "named_learners",
+  ]);
+
+  const allPopulatedCategories: CategoryCardData[] = [
+    ...initialState.core_categories.filter((c) => c.memories.length > 0),
+    ...initialState.life_areas,
+  ];
+
+  const youCategories = allPopulatedCategories.filter(
+    (c) => (c.section || (youSlugSet.has(c.slug) ? "you" : "topics")) === "you"
+  );
+  const topicCategories = allPopulatedCategories.filter(
+    (c) =>
+      (c.section || (youSlugSet.has(c.slug) ? "you" : "topics")) === "topics"
   );
 
   const serializedState = JSON.stringify(initialState).replace(/</g, "\\u003c");
@@ -1143,7 +1831,7 @@ export default function ClientWorkspace({ initialState }: ClientWorkspaceProps) 
                 ))}
               </div>
 
-              {/* Filter & Search Toolbar */}
+              {/* Filter, View Mode (List / Cards) & Search Toolbar */}
               <div className="dashboard-toolbar">
                 <div className="segmented-tabs">
                   <button
@@ -1184,14 +1872,36 @@ export default function ClientWorkspace({ initialState }: ClientWorkspaceProps) 
                 </div>
 
                 <div
-                  style={{ display: "flex", gap: "8px", alignItems: "center" }}
+                  style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}
                 >
+                  {/* List vs Cards Toggle */}
+                  <div
+                    className="segmented-tabs"
+                    role="group"
+                    aria-label="Memory display layout"
+                  >
+                    <button
+                      type="button"
+                      className="seg-btn active"
+                      data-display-mode="list"
+                    >
+                      List
+                    </button>
+                    <button
+                      type="button"
+                      className="seg-btn"
+                      data-display-mode="cards"
+                    >
+                      Cards
+                    </button>
+                  </div>
+
                   <input
                     id="category-search-input"
                     type="text"
                     className="input"
                     placeholder="Filter categories or memories..."
-                    style={{ width: "220px" }}
+                    style={{ width: "200px" }}
                   />
                   <button
                     type="button"
@@ -1236,234 +1946,120 @@ export default function ClientWorkspace({ initialState }: ClientWorkspaceProps) 
                 </button>
               </div>
 
-              {/* Category Cards Grid */}
+              {/* Main Memory Body (SSR defaults to Claude-style Layer 1 List View) */}
               <div id="dashboard-main-body">
-                <div className="cards-grid">
-                  {initialState.life_areas.map((la) => (
-                    <article
-                      key={la.id}
-                      className="memory-card"
-                      id={`category-card-${la.slug}`}
+                <div className="claude-memory-shell">
+                  <div className="claude-breadcrumb-bar">
+                    <span style={{ color: "var(--text-secondary)" }}>
+                      &larr; Your Amal
+                    </span>
+                    <span className="sep">/</span>
+                    <span className="current">Memory</span>
+                    <span className="tag" style={{ marginLeft: "auto" }}>
+                      Layer 1 of 3 &middot; You &amp; Topics
+                    </span>
+                  </div>
+
+                  <div className="claude-import-banner">
+                    <div className="claude-import-banner-text">
+                      <div className="claude-import-banner-title">
+                        Import memory from other AI providers
+                      </div>
+                      <div className="claude-import-banner-sub">
+                        Bring relevant context and data from another AI provider
+                        to Amal. We&apos;ll provide a prompt you can use to
+                        fetch the memory from your other account.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn"
+                      data-action="toggle-import-memory"
                     >
-                      <div className="memory-card-header">
-                        <div className="memory-card-title-group">
-                          <h3 className="memory-card-title">{la.label_en}</h3>
-                          <span className="tag life-area">Life Area</span>
-                        </div>
+                      Start import
+                    </button>
+                  </div>
+
+                  {/* You Section */}
+                  <div className="claude-section-block">
+                    <h3 className="claude-section-heading">You</h3>
+                    <div className="claude-list-table" role="list">
+                      {youCategories.map((cat) => (
                         <div
-                          style={{
-                            display: "flex",
-                            gap: "6px",
-                            alignItems: "center",
-                          }}
-                        >
-                          <button
-                            type="button"
-                            className="btn btn-xs"
-                            data-action="rename-life-area"
-                            data-id={la.id}
-                            data-label={la.label_en}
-                          >
-                            Rename
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-danger-ghost"
-                            data-action="delete-category"
-                            data-id={la.id}
-                            data-life-area="1"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="memory-field-block">
-                        <div className="memory-field-label">Last updated</div>
-                        <div className="memory-field-value">
-                          {la.last_updated}
-                        </div>
-                      </div>
-
-                      <div className="memory-field-block">
-                        <div className="memory-field-label">Summary</div>
-                        <div className="memory-field-value">{la.summary}</div>
-                      </div>
-
-                      <div
-                        className="memory-field-block"
-                        style={{ marginBottom: 0 }}
-                      >
-                        <div className="memory-field-label">Details</div>
-                        {la.memories.length > 0 ? (
-                          <ul className="memory-details-list">
-                            {la.memories.map((mem) => (
-                              <li
-                                key={mem.id}
-                                className="memory-details-item"
-                              >
-                                <div className="memory-bullet-row">
-                                  <span>{mem.statement}</span>
-                                  <div
-                                    className="memory-bullet-actions"
-                                    style={{ opacity: 1 }}
-                                  >
-                                    <button
-                                      type="button"
-                                      className="btn btn-xs"
-                                      data-action="edit-memory"
-                                      data-id={mem.id}
-                                      data-statement={mem.statement}
-                                    >
-                                      Edit
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="btn btn-xs btn-danger-ghost"
-                                      data-action="delete-memory"
-                                      data-id={mem.id}
-                                    >
-                                      Delete
-                                    </button>
-                                  </div>
-                                </div>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <div
-                            style={{
-                              fontSize: "13px",
-                              color: "var(--text-muted)",
-                              marginTop: "4px",
-                            }}
-                          >
-                            No details saved in this category yet.
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="memory-card-footer">
-                        <span
-                          style={{
-                            fontSize: "11.5px",
-                            color: "var(--text-muted)",
-                          }}
-                        >
-                          {la.label_sw}
-                        </span>
-                        <button
-                          type="button"
-                          className="btn btn-xs"
-                          data-action="add-detail"
-                          data-slug={la.slug}
-                          data-label={la.label_en}
-                        >
-                          Add detail
-                        </button>
-                      </div>
-                    </article>
-                  ))}
-
-                  {populatedCoreCategories.map((cat) => (
-                    <article
-                      key={cat.id}
-                      className="memory-card"
-                      id={`category-card-${cat.slug}`}
-                    >
-                      <div className="memory-card-header">
-                        <div className="memory-card-title-group">
-                          <h3 className="memory-card-title">{cat.label_en}</h3>
-                          {cat.sensitivity === "consent" && (
-                            <span className="tag consent">
-                              Consent required
-                            </span>
-                          )}
-                        </div>
-                        <div>
-                          <button
-                            type="button"
-                            className="btn btn-danger-ghost"
-                            data-action="delete-category"
-                            data-id={cat.id}
-                            data-life-area="0"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="memory-field-block">
-                        <div className="memory-field-label">Last updated</div>
-                        <div className="memory-field-value">
-                          {cat.last_updated}
-                        </div>
-                      </div>
-
-                      <div className="memory-field-block">
-                        <div className="memory-field-label">Summary</div>
-                        <div className="memory-field-value">{cat.summary}</div>
-                      </div>
-
-                      <div
-                        className="memory-field-block"
-                        style={{ marginBottom: 0 }}
-                      >
-                        <div className="memory-field-label">Details</div>
-                        <ul className="memory-details-list">
-                          {cat.memories.map((mem) => (
-                            <li key={mem.id} className="memory-details-item">
-                              <div className="memory-bullet-row">
-                                <span>{mem.statement}</span>
-                                <div
-                                  className="memory-bullet-actions"
-                                  style={{ opacity: 1 }}
-                                >
-                                  <button
-                                    type="button"
-                                    className="btn btn-xs"
-                                    data-action="edit-memory"
-                                    data-id={mem.id}
-                                    data-statement={mem.statement}
-                                  >
-                                    Edit
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="btn btn-xs btn-danger-ghost"
-                                    data-action="delete-memory"
-                                    data-id={mem.id}
-                                  >
-                                    Delete
-                                  </button>
-                                </div>
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-
-                      <div className="memory-card-footer">
-                        <span
-                          style={{
-                            fontSize: "11.5px",
-                            color: "var(--text-muted)",
-                          }}
-                        >
-                          {cat.label_sw}
-                        </span>
-                        <button
-                          type="button"
-                          className="btn btn-xs"
-                          data-action="add-detail"
+                          key={cat.id}
+                          className="claude-list-row"
+                          role="listitem"
+                          tabIndex={0}
+                          data-action="open-category"
                           data-slug={cat.slug}
-                          data-label={cat.label_en}
                         >
-                          Add detail
-                        </button>
-                      </div>
-                    </article>
-                  ))}
+                          <div className="claude-list-title">
+                            {cat.label_en}
+                          </div>
+                          <div className="claude-list-summary">
+                            {cat.summary}
+                          </div>
+                          <div className="claude-list-date">
+                            {cat.last_updated_short ||
+                              `Updated ${cat.last_updated}`}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Topics Section */}
+                  <div className="claude-section-block">
+                    <h3 className="claude-section-heading">Topics</h3>
+                    <div className="claude-list-table" role="list">
+                      {topicCategories.map((cat) => (
+                        <div
+                          key={cat.id}
+                          className="claude-list-row"
+                          role="listitem"
+                          tabIndex={0}
+                          data-action="open-category"
+                          data-slug={cat.slug}
+                        >
+                          <div className="claude-list-title">
+                            {cat.label_en}
+                          </div>
+                          <div className="claude-list-summary">
+                            {cat.summary}
+                          </div>
+                          <div className="claude-list-date">
+                            {cat.last_updated_short ||
+                              `Updated ${cat.last_updated}`}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Bottom Pill Input Bar */}
+                  <div className="claude-bottom-input-wrap">
+                    <div className="claude-bottom-input-bar">
+                      <input
+                        type="text"
+                        id="claude-memory-quick-input"
+                        className="claude-bottom-input"
+                        placeholder="My dog's name is Beans"
+                        data-cat-slug=""
+                        data-sub-slug=""
+                      />
+                      <button
+                        type="button"
+                        className="claude-up-btn"
+                        data-action="submit-quick-memory"
+                        data-cat-slug=""
+                        data-sub-slug=""
+                        title="Save to memory"
+                        aria-label="Save to memory"
+                      >
+                        &uarr;
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

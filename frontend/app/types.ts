@@ -7,10 +7,15 @@ export interface MemoryEntry {
   sensitivity: string;
   confidence: number;
   salience: number;
+  category_id?: string;
+  category_slug?: string;
+  category_label_en?: string;
   subcategory_id: string | null;
   subcategory_slug: string;
+  subcategory_label?: string;
   subcategory_label_en: string;
   subcategory_label_sw: string;
+  layer?: number;
   surface: string;
   product_area: string;
   conversation_id: string;
@@ -18,6 +23,7 @@ export interface MemoryEntry {
   valid_from: string | null;
   recorded_at: string | null;
   last_updated_display?: string;
+  last_updated_short?: string;
 }
 
 export interface SubcategoryItem {
@@ -25,6 +31,15 @@ export interface SubcategoryItem {
   slug: string;
   label_en: string;
   label_sw: string;
+  parent_id?: string;
+  parent_slug?: string;
+  parent_label_en?: string;
+  layer?: number;
+  summary?: string;
+  last_updated?: string;
+  last_updated_short?: string;
+  memory_count?: number;
+  memories?: MemoryEntry[];
 }
 
 export interface CategoryCardData {
@@ -32,17 +47,31 @@ export interface CategoryCardData {
   slug: string;
   label_en: string;
   label_sw: string;
+  section?: "you" | "topics";
+  layer?: number;
   description?: string;
   summary: string;
   last_updated: string;
+  last_updated_short?: string;
   sensitivity?: string;
   status?: string;
   is_protected?: boolean;
+  is_life_area?: boolean;
   created_by?: string;
   frozen_until: string | null;
   subcategories: SubcategoryItem[];
   memories: MemoryEntry[];
   memory_count: number;
+}
+
+export interface MemorySectionGroup {
+  id: "you" | "topics" | string;
+  slug: string;
+  label_en: string;
+  label_sw: string;
+  layer: number;
+  description: string;
+  categories: CategoryCardData[];
 }
 
 export interface PendingConsentItem {
@@ -109,6 +138,7 @@ export interface CategoricalState {
     version: number;
     built_from_count: number;
   };
+  memory_sections?: MemorySectionGroup[];
   core_categories: CategoryCardData[];
   life_areas: CategoryCardData[];
   pending_consents: PendingConsentItem[];

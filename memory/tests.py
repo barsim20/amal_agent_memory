@@ -629,6 +629,104 @@ class AmalMemoryAndDreamingTests(TestCase):
         for expected_bullet in llm_defined_bullets:
             self.assertIn(expected_bullet, saved_bullets)
 
+    def test_three_layer_memory_hierarchy_and_import_endpoint(self):
+        """
+        Verify:
+        - Layer 1 (`memory_sections`: `You` and `Topics`) groups identity/classroom categories under `You`
+          and Life Areas / practice / work under `Topics`.
+        - Layer 2 (`core_categories` and `life_areas`) includes `last_updated_short`, `section`, `layer=2`,
+          and enriched `subcategories`.
+        - Layer 3 (`subcategories`) includes `memories`, `memory_count`, `summary`, `last_updated`,
+          `last_updated_short`, and `layer=3`, and supports `create_subcategory`, `rename_subcategory`,
+          and clearing a subcategory via `/api/categories/<sub_id>/clear/`.
+        - `/api/memories/import/` imports bulleted memories from other AI providers.
+        """
+        seed_resp = self.client.post(
+            "/api/seed-demo/",
+            data=json.dumps({"teacher_id": self.teacher_id}),
+            content_type="application/json",
+        )
+        self.assertEqual(seed_resp.status_code, 200)
+        state = seed_resp.json()["state"]
 
+        # Verify Layer 1 sections (`You` and `Topics`)
+        self.assertIn("memory_sections", state)
+        sections_by_key = {sec["key"]: sec for sec in state["memory_sections"]}
+        self.assertIn("you", sections_by_key)
+        self.assertIn("topics", sections_by_key)
 
+        you_slugs = [c["slug"] for c in sections_by_key["you"]["items"]]
+        topic_slugs = [c["slug"] for c in sections_by_key["topics"]["items"]]
+        self.assertIn("preferences", you_slugs)
+        self.assertIn("teaching_context", you_slugs)
+        self.assertIn("ai_tooling", topic_slugs)
+        self.assertIn("interests", topic_slugs)
+        self.assertIn("languages", topic_slugs)
 
+        # Verify Layer 2 Preferences category has the two bullets from image_2.png
+        prefs_cat = next(c for c in state["core_categories"] if c["slug"] == "preferences")
+        self.assertEqual(prefs_cat["layer"], 2)
+        self.assertEqual(prefs_cat["section"], "you")
+        self.assertTrue(prefs_cat["last_updated_short"].startswith("Updated "))
+        pref_statements = [m["statement"] for m in prefs_cat["memories"]]
+        self.assertIn("Never use em dashes in any response or generated content", pref_statements)
+        self.assertIn("Prefers studying academic/course content in English", pref_statements)
+
+        # Verify Layer 3 subcategories inside Preferences contain their scoped memories and summaries
+        register_sub = next(s for s in prefs_cat["subcategories"] if s["slug"] == "register")
+        self.assertEqual(register_sub["layer"], 3)
+        self.assertEqual(register_sub["memory_count"], 1)
+        self.assertIn("Never use em dashes", register_sub["summary"])
+        self.assertEqual(
+            register_sub["memories"][0]["statement"],
+            "Never use em dashes in any response or generated content",
+        )
+
+        # Verify creating and renaming a Layer 3 subcategory under AI Tooling
+        ai_cat = next(c for c in state["life_areas"] if c["slug"] == "ai_tooling")
+        create_sub_resp = self.client.post(
+            "/api/life-areas/",
+            data=json.dumps(
+                {
+                    "teacher_id": self.teacher_id,
+                    "action": "create_subcategory",
+                    "parent_id": ai_cat["id"],
+                    "label_en": "Custom Skills",
+                    "label_sw": "Ujuzi Maalum",
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(create_sub_resp.status_code, 200)
+        created_sub = create_sub_resp.json()["category"]
+        self.assertEqual(created_sub["slug"], "custom_skills")
+
+        rename_sub_resp = self.client.post(
+            "/api/life-areas/",
+            data=json.dumps(
+                {
+                    "teacher_id": self.teacher_id,
+                    "action": "rename_subcategory",
+                    "category_id": created_sub["id"],
+                    "label_en": "Agent Skills & Prompts",
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(rename_sub_resp.status_code, 200)
+        self.assertEqual(rename_sub_resp.json()["category"]["label_en"], "Agent Skills & Prompts")
+
+        # Verify importing memories from another AI provider via /api/memories/import/
+        import_resp = self.client.post(
+            "/api/memories/import/",
+            data=json.dumps(
+                {
+                    "teacher_id": self.teacher_id,
+                    "raw_text": "- Uses rubric tables for CBC Grade 6 Science practicals\n- Prefers concise bulleted lesson warm-ups",
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(import_resp.status_code, 200)
+        imp_data = import_resp.json()
+        self.assertEqual(imp_data["imported_count"], 2)

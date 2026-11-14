@@ -418,6 +418,23 @@
 
     <!-- RIGHT COLUMN: Categorical Memory Representation -->
     <div>
+      <!-- 0. Claude-Inspired 3-Layer Memory Explorer (List & Cards View) -->
+      <div class="panel" id="claudeMemoryExplorerPanel">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+          <div>
+            <h2>Memory Explorer (3-Layer Hierarchy: Section &rarr; Category &rarr; Subcategory)</h2>
+            <div style="font-size:12px; color:var(--muted);">
+              Click any row or card to drill into Layer 2 (Category) and Layer 3 (Subcategory &amp; Atomic Details).
+            </div>
+          </div>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <button id="viewModeListBtn" class="primary" onclick="setExplorerDisplayMode('list')">List View</button>
+            <button id="viewModeCardsBtn" onclick="setExplorerDisplayMode('cards')">Cards View</button>
+          </div>
+        </div>
+        <div id="claudeMemoryExplorerBody"></div>
+      </div>
+
       <!-- 1. Always-Injected Core Profile Block -->
       <div class="panel">
         <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -625,10 +642,150 @@
       document.getElementById('unreadCountBadge').textContent = `${state.unread_notification_count} unread`;
 
       renderBannersAndCards(state);
+      renderClaudeExplorer(state);
       renderLifeAreas(state.life_areas);
       renderCoreCategories(state.core_categories);
       renderSuperseded(state.superseded_history);
       renderNotifications(state.notifications);
+    }
+
+    let explorerDisplayMode = 'list';
+    let explorerCatSlug = null;
+    let explorerSubSlug = null;
+
+    function setExplorerDisplayMode(mode) {
+      explorerDisplayMode = mode;
+      document.getElementById('viewModeListBtn').className = mode === 'list' ? 'primary' : '';
+      document.getElementById('viewModeCardsBtn').className = mode === 'cards' ? 'primary' : '';
+      if (currentState) renderClaudeExplorer(currentState);
+    }
+
+    function openExplorerCategory(slug) {
+      explorerCatSlug = slug || null;
+      explorerSubSlug = null;
+      if (currentState) renderClaudeExplorer(currentState);
+    }
+
+    function openExplorerSubcategory(catSlug, subSlug) {
+      explorerCatSlug = catSlug || null;
+      explorerSubSlug = subSlug || null;
+      if (currentState) renderClaudeExplorer(currentState);
+    }
+
+    function renderClaudeExplorer(state) {
+      const el = document.getElementById('claudeMemoryExplorerBody');
+      if (!el || !state) return;
+      const allCats = [...(state.core_categories || []), ...(state.life_areas || [])];
+      const activeCat = explorerCatSlug ? allCats.find(c => c.slug === explorerCatSlug) : null;
+      const activeSub = (activeCat && explorerSubSlug)
+        ? (activeCat.subcategories || []).find(s => s.slug === explorerSubSlug)
+        : null;
+
+      if (activeCat && activeSub) {
+        // Layer 3: Subcategory detail
+        const mems = activeSub.memories || [];
+        el.innerHTML = `
+          <div style="border-top:1px solid var(--border); padding-top:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+              <div>
+                <button onclick="openExplorerCategory('${escapeHtml(activeCat.slug)}')">&larr; ${escapeHtml(activeCat.label_en)}</button>
+                <span style="margin:0 6px; color:var(--muted);">/</span>
+                <strong>${escapeHtml(activeSub.label_en)}</strong>
+              </div>
+              <span class="badge life-area">Layer 3 of 3 &middot; Subcategory</span>
+            </div>
+            <div class="card-field-label">Last updated</div>
+            <div class="card-field-value">${escapeHtml(activeSub.last_updated || 'No memories saved yet')}</div>
+            <div class="card-field-label">Summary</div>
+            <div class="card-field-value">${escapeHtml(activeSub.summary || '')}</div>
+            <div class="card-field-label">Details (${mems.length})</div>
+            ${mems.length > 0 ? mems.map(renderMemoryRow).join('') : '<div class="empty-note">No memories in this subcategory yet.</div>'}
+          </div>
+        `;
+        return;
+      }
+
+      if (activeCat) {
+        // Layer 2: Category detail (Claude image_2.png layout)
+        const subs = activeCat.subcategories || [];
+        const mems = activeCat.memories || [];
+        el.innerHTML = `
+          <div style="border-top:1px solid var(--border); padding-top:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+              <button onclick="openExplorerCategory(null)">&larr; Memory</button>
+              <span class="badge">Layer 2 of 3 &middot; ${escapeHtml(activeCat.label_en)}</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+              <h3 style="margin:0; font-size:18px;">${escapeHtml(activeCat.label_en)}</h3>
+              <div style="display:flex; gap:6px;">
+                ${activeCat.is_life_area ? `<button onclick="promptRenameLifeArea('${activeCat.id}', '${escapeHtml(activeCat.label_en)}')">Rename</button>` : ''}
+                <button class="danger" onclick="${activeCat.is_life_area ? `deleteLifeArea('${activeCat.id}')` : `clearCategoryMemories('${activeCat.id}', '${escapeHtml(activeCat.label_en)}')`}">Delete</button>
+              </div>
+            </div>
+            <div class="card-field-label">Last updated</div>
+            <div class="card-field-value">${escapeHtml(activeCat.last_updated || '')}</div>
+            <div class="card-field-label">Summary</div>
+            <div class="card-field-value">${escapeHtml(activeCat.summary || '')}</div>
+            <div class="card-field-label">Subcategories (Click to open Layer 3)</div>
+            <div style="display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 12px;">
+              ${subs.map(s => `
+                <button onclick="openExplorerSubcategory('${escapeHtml(activeCat.slug)}', '${escapeHtml(s.slug)}')">
+                  ${escapeHtml(s.label_en)} (${s.memory_count || (s.memories ? s.memories.length : 0)}) &rarr;
+                </button>
+              `).join('')}
+            </div>
+            <div class="card-field-label">Details (${mems.length})</div>
+            <ul class="details-bullet-list">
+              ${mems.map(m => `
+                <li class="details-bullet-item">
+                  <div class="bullet-row">
+                    <span>${escapeHtml(m.statement)}</span>
+                    <span class="bullet-actions">
+                      <button onclick="promptEditMemory('${m.id}', '${escapeHtml(m.statement)}')">Edit</button>
+                      <button class="danger" onclick="deleteSingleMemory('${m.id}')">Delete</button>
+                    </span>
+                  </div>
+                </li>
+              `).join('')}
+            </ul>
+          </div>
+        `;
+        return;
+      }
+
+      // Layer 1: You & Topics overview (List or Cards)
+      const sections = state.memory_sections || [];
+      if (explorerDisplayMode === 'list') {
+        el.innerHTML = sections.map(sec => {
+          const items = (sec.items || []).filter(c => (c.memories || []).length > 0 || c.is_life_area);
+          return `
+            <div style="margin-bottom:14px;">
+              <h3 style="margin:0 0 6px; font-size:15px;">${escapeHtml(sec.label_en)}</h3>
+              ${items.length === 0 ? '<div class="empty-note">No populated categories yet.</div>' : items.map(c => `
+                <div onclick="openExplorerCategory('${escapeHtml(c.slug)}')" style="display:grid; grid-template-columns:160px 1fr 130px; gap:12px; padding:10px 8px; border-bottom:1px solid #e2e8f0; cursor:pointer; align-items:baseline;">
+                  <strong>${escapeHtml(c.label_en)}</strong>
+                  <span style="color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(c.summary || '')}</span>
+                  <span style="color:var(--muted); font-size:12px; text-align:right;">${escapeHtml(c.last_updated_short || c.last_updated || '')}</span>
+                </div>
+              `).join('')}
+            </div>
+          `;
+        }).join('');
+      } else {
+        const popCats = allCats.filter(c => (c.memories || []).length > 0 || c.is_life_area);
+        el.innerHTML = `<div class="category-grid">${popCats.map(c => `
+          <div class="category-box" style="cursor:pointer;" onclick="openExplorerCategory('${escapeHtml(c.slug)}')">
+            <div class="category-header">
+              <strong>${escapeHtml(c.label_en)}</strong>
+              <span class="badge">${(c.memories || []).length} details &rarr;</span>
+            </div>
+            <div class="card-field-label">Last updated</div>
+            <div class="card-field-value">${escapeHtml(c.last_updated || '')}</div>
+            <div class="card-field-label">Summary</div>
+            <div class="card-field-value">${escapeHtml(c.summary || '')}</div>
+          </div>
+        `).join('')}</div>`;
+      }
     }
 
     function renderBannersAndCards(state) {

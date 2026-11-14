@@ -1025,6 +1025,24 @@ def teacher_manage_life_area(
 
     with transaction.atomic():
         if action == "create":
+            slug = re.sub(r"[^a-z0-9]+", "_", label_en.lower()).strip("_") or "custom_area"
+            existing = (
+                MemoryCategory.objects.filter(teacher=teacher, kind="life_area", slug=slug)
+                .exclude(status="merged")
+                .first()
+            )
+            if existing:
+                if existing.status != "active":
+                    existing.status = "active"
+                if label_en.strip():
+                    existing.label_en = label_en.strip()
+                if label_sw.strip():
+                    existing.label_sw = label_sw.strip()
+                existing.last_memory_at = now
+                existing.save(update_fields=["status", "label_en", "label_sw", "last_memory_at"])
+                regenerate_core_profile(teacher)
+                return {"ok": True, "action": "create", "category_id": str(existing.id), "label_en": existing.label_en}
+
             active_count = MemoryCategory.objects.filter(
                 teacher=teacher,
                 kind="life_area",
@@ -1032,7 +1050,6 @@ def teacher_manage_life_area(
             ).count()
             if active_count >= MAX_ACTIVE_LIFE_AREAS_PER_TEACHER:
                 return {"ok": False, "reason": "max_active_life_areas_reached"}
-            slug = re.sub(r"[^a-z0-9]+", "_", label_en.lower()).strip("_") or "custom_area"
             cat = MemoryCategory.objects.create(
                 teacher=teacher,
                 kind="life_area",
@@ -1048,6 +1065,81 @@ def teacher_manage_life_area(
             )
             regenerate_core_profile(teacher)
             return {"ok": True, "action": "create", "category_id": str(cat.id), "label_en": cat.label_en}
+
+        if action == "create_subcategory":
+            if not category_id:
+                return {"ok": False, "reason": "category_id_required"}
+            parent_cat = (
+                MemoryCategory.objects.filter(id=category_id).first()
+                or MemoryCategory.objects.filter(teacher=teacher, slug=category_id, kind="life_area").first()
+                or MemoryCategory.objects.filter(teacher__isnull=True, slug=category_id, kind="core").first()
+            )
+            if not parent_cat:
+                return {"ok": False, "reason": "parent_category_not_found"}
+            sub_slug = re.sub(r"[^a-z0-9]+", "_", label_en.lower()).strip("_") or "general"
+            sub_cat, created = MemoryCategory.objects.get_or_create(
+                teacher=teacher,
+                parent=parent_cat,
+                slug=sub_slug,
+                kind="sub",
+                defaults={
+                    "label_en": label_en.strip() or sub_slug.replace("_", " ").capitalize(),
+                    "label_sw": (label_sw or label_en).strip() or sub_slug.replace("_", " ").capitalize(),
+                    "sensitivity": parent_cat.sensitivity,
+                    "is_protected": False,
+                    "status": "active",
+                    "created_by": "teacher",
+                    "centroid": embed_text(f"{parent_cat.label_en} {label_en} {label_sw}"),
+                    "last_memory_at": now,
+                },
+            )
+            if not created and sub_cat.status != "active":
+                sub_cat.status = "active"
+                sub_cat.save(update_fields=["status"])
+            return {
+                "ok": True,
+                "action": "create_subcategory",
+                "id": str(sub_cat.id),
+                "subcategory_id": str(sub_cat.id),
+                "slug": sub_cat.slug,
+                "label_en": sub_cat.label_en,
+                "label_sw": sub_cat.label_sw,
+                "category": {
+                    "id": str(sub_cat.id),
+                    "slug": sub_cat.slug,
+                    "label_en": sub_cat.label_en,
+                    "label_sw": sub_cat.label_sw,
+                },
+            }
+
+        if action == "rename_subcategory":
+            if not category_id:
+                return {"ok": False, "reason": "subcategory_id_required"}
+            sub_cat = MemoryCategory.objects.filter(id=category_id, kind="sub").first()
+            if not sub_cat:
+                return {"ok": False, "reason": "subcategory_not_found"}
+            if label_en.strip():
+                sub_cat.label_en = label_en.strip()
+            if label_sw.strip():
+                sub_cat.label_sw = label_sw.strip()
+            sub_cat.created_by = "teacher"
+            sub_cat.last_renamed_at = now
+            sub_cat.save(update_fields=["label_en", "label_sw", "created_by", "last_renamed_at"])
+            return {
+                "ok": True,
+                "action": "rename_subcategory",
+                "id": str(sub_cat.id),
+                "subcategory_id": str(sub_cat.id),
+                "slug": sub_cat.slug,
+                "label_en": sub_cat.label_en,
+                "label_sw": sub_cat.label_sw,
+                "category": {
+                    "id": str(sub_cat.id),
+                    "slug": sub_cat.slug,
+                    "label_en": sub_cat.label_en,
+                    "label_sw": sub_cat.label_sw,
+                },
+            }
 
         if not category_id:
             return {"ok": False, "reason": "category_id_required"}
