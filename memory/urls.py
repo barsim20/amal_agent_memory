@@ -14,6 +14,7 @@ urlpatterns = [
     re_path(r"^api/consent/(?P<consent_id>[^/]+)/?$", views.api_resolve_consent, name="api_resolve_consent"),
     re_path(r"^api/notifications/(?P<notification_id>[^/]+)/action/?$", views.api_notification_action, name="api_notification_action"),
     re_path(r"^api/chat/?$", views.api_chat, name="api_chat"),
+    re_path(r"^api/memory-decision/?$", views.api_memory_decision, name="api_memory_decision"),
     re_path(r"^api/live-pass/?$", views.api_live_pass, name="api_live_pass"),
     re_path(r"^api/dream/?$", views.api_dream_run, name="api_dream_run"),
     re_path(r"^api/retrieve/?$", views.api_retrieve_context, name="api_retrieve_context"),

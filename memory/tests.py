@@ -480,40 +480,53 @@ class AmalMemoryAndDreamingTests(TestCase):
         categorical schema, and retrieves them on subsequent turns.
         """
         from unittest.mock import patch
-        from .llm import ExtractedMemoryCandidate, MemoryExtractionList
+        from .llm import ExtractedMemoryCandidate, MemoryDecisionOutput
 
-        def fake_langchain_invoke(messages, primary_model, max_tokens=800, temperature=0.2, api_key_override=None, structured_schema=None):
-            if structured_schema is MemoryExtractionList:
-                user_text = messages[-1].content
-                if "Grade 6 Mathematics" in user_text:
-                    return (
-                        MemoryExtractionList(
-                            memories=[
-                                ExtractedMemoryCandidate(
-                                    statement="Teaches Grade 6 Mathematics and Science",
-                                    category="teaching_context",
-                                    subcategory="subjects",
-                                    source="stated",
-                                    sensitivity="normal",
-                                    confidence=0.98,
-                                ),
-                                ExtractedMemoryCandidate(
-                                    statement="Has 65 learners per class and no projector",
-                                    category="classroom",
-                                    subcategory="resources",
-                                    source="stated",
-                                    sensitivity="normal",
-                                    confidence=0.96,
-                                ),
-                            ]
-                        ),
-                        "claude-3-5-haiku-latest",
-                        None,
-                    )
-                return MemoryExtractionList(memories=[]), "claude-3-5-haiku-latest", None
-            return "Here is a 20-minute Grade 6 Hisabati group activity for 65 learners using chalkboard.", "claude-3-5-haiku-latest", None
+        def fake_gemini_decision(messages, primary_model, **kwargs):
+            user_text = messages[-1].content
+            if "Grade 6 Mathematics" in user_text:
+                return (
+                    MemoryDecisionOutput(
+                        should_store=True,
+                        decision_reason="Teacher shared durable subjects, class size, and classroom resource facts.",
+                        memories=[
+                            ExtractedMemoryCandidate(
+                                statement="Teaches Grade 6 Mathematics and Science",
+                                category="teaching_context",
+                                subcategory="subjects",
+                                source="stated",
+                                sensitivity="normal",
+                                confidence=0.98,
+                            ),
+                            ExtractedMemoryCandidate(
+                                statement="Has 65 learners per class and no projector",
+                                category="classroom",
+                                subcategory="resources",
+                                source="stated",
+                                sensitivity="normal",
+                                confidence=0.96,
+                            ),
+                        ],
+                    ),
+                    "gemini-2.5-flash",
+                    None,
+                )
+            return (
+                MemoryDecisionOutput(
+                    should_store=False,
+                    decision_reason="Ephemeral lesson planning question.",
+                    memories=[],
+                ),
+                "gemini-2.5-flash",
+                None,
+            )
 
-        with patch("memory.llm._invoke_langchain_anthropic_with_fallback_models", side_effect=fake_langchain_invoke):
+        def fake_claude_sonnet_chat(messages, primary_model, max_tokens=800, temperature=0.2, api_key_override=None, structured_schema=None):
+            return "Here is a 20-minute Grade 6 Hisabati group activity for 65 learners using chalkboard.", "claude-sonnet-4-20250514", None
+
+        with patch("memory.llm._invoke_gemini_decision_with_fallback_models", side_effect=fake_gemini_decision), patch(
+            "memory.llm._invoke_langchain_anthropic_with_fallback_models", side_effect=fake_claude_sonnet_chat
+        ):
             resp1 = self.client.post(
                 "/api/chat/",
                 data=json.dumps(
@@ -527,10 +540,18 @@ class AmalMemoryAndDreamingTests(TestCase):
             self.assertEqual(resp1.status_code, 200)
             data1 = resp1.json()
             self.assertTrue(data1["reply"])
+            self.assertEqual(data1["chat_model"], "claude-sonnet-4-20250514")
+            self.assertEqual(data1["decision_model"], "gemini-2.5-flash")
+            self.assertTrue(data1["memory_decision"]["should_store"])
+            self.assertTrue(data1["memory_stored"])
+            self.assertEqual(
+                data1["toast_message"],
+                "Amal learned something new about you. Discover in memories",
+            )
             self.assertEqual(len(data1["extracted_candidates"]), 2)
             self.assertEqual(data1["extracted_candidates"][0]["statement"], "Teaches Grade 6 Mathematics and Science")
 
-            # Follow-up lesson planning chat retrieves the extracted classroom memory
+            # Follow-up lesson planning chat retrieves the extracted classroom memory and does NOT trigger a memory toast
             resp2 = self.client.post(
                 "/api/chat/",
                 data=json.dumps(
@@ -543,16 +564,19 @@ class AmalMemoryAndDreamingTests(TestCase):
             )
             self.assertEqual(resp2.status_code, 200)
             data2 = resp2.json()
+            self.assertFalse(data2["memory_decision"]["should_store"])
+            self.assertFalse(data2["memory_stored"])
+            self.assertIsNone(data2["toast_message"])
             self.assertGreaterEqual(len(data2["turn_context"]["retrieved_memories"]), 1)
 
     def test_bullet_wording_normalization_and_card_fields(self):
         """
-        Verify LLM-defined memories are saved in concise, subjectless, verb-led third-person bullet wording
+        Verify Gemini Decision API memories are saved in concise, subjectless, verb-led third-person bullet wording
         matching image.png (e.g. 'Built a Socratic tutor skill...', 'Does prompt optimization for WhatsApp agents')
         and category cards expose `last_updated` and personalized `summary`.
         """
         from unittest.mock import patch
-        from .llm import ExtractedMemoryCandidate, MemoryExtractionList, extract_memories_with_llm
+        from .llm import ExtractedMemoryCandidate, MemoryDecisionOutput, extract_memories_with_llm
 
         llm_defined_bullets = [
             "Built a gradual-release-instructor skill using the skill-creator system",
@@ -560,7 +584,9 @@ class AmalMemoryAndDreamingTests(TestCase):
             "Built an Anki card creator skill",
             "Does prompt optimization for WhatsApp agents",
         ]
-        mock_extraction = MemoryExtractionList(
+        mock_decision = MemoryDecisionOutput(
+            should_store=True,
+            decision_reason="Teacher described reusable AI skills and ongoing prompt optimization work.",
             memories=[
                 ExtractedMemoryCandidate(
                     statement=stmt,
@@ -571,18 +597,18 @@ class AmalMemoryAndDreamingTests(TestCase):
                     confidence=0.97,
                 )
                 for idx, stmt in enumerate(llm_defined_bullets)
-            ]
+            ],
         )
 
         with patch(
-            "memory.llm._invoke_langchain_anthropic_with_fallback_models",
-            return_value=(mock_extraction, "claude-3-5-haiku-latest", None),
+            "memory.llm._invoke_gemini_decision_with_fallback_models",
+            return_value=(mock_decision, "gemini-2.5-flash", None),
         ):
             candidates, model_used, live_llm = extract_memories_with_llm(
                 "I built a gradual-release-instructor skill, a Socratic tutor skill, an Anki card creator skill, and I do prompt optimization for WhatsApp agents."
             )
             self.assertTrue(live_llm)
-            self.assertEqual(model_used, "claude-3-5-haiku-latest")
+            self.assertEqual(model_used, "gemini-2.5-flash")
             for idx, cand in enumerate(candidates):
                 res = save_or_update_memory(
                     teacher_id=self.teacher_id,
@@ -602,6 +628,7 @@ class AmalMemoryAndDreamingTests(TestCase):
         saved_bullets = [m["statement"] for m in ongoing_cat["memories"]]
         for expected_bullet in llm_defined_bullets:
             self.assertIn(expected_bullet, saved_bullets)
+
 
 
 

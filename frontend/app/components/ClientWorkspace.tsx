@@ -24,14 +24,15 @@ const INLINE_RUNTIME_SCRIPT = `
   var viewMode = "split";
   var filterTab = "populated";
   var searchQuery = "";
-  var showKeyBar = false;
+  var showKeyBar = true;
   var creatingArea = false;
   var chatHistory = [];
+  var toastTimer = null;
   var messages = [
     {
       id: "welcome-1",
       role: "assistant",
-      content: "Habari Mwalimu! I am Amal, your teaching assistant. Ask for help planning a lesson or share something about your classroom — your context is organized into the memory categories automatically."
+      content: "Habari Mwalimu! I am Amal, your teaching assistant. Ask me anything or share something about your classroom and work."
     }
   ];
 
@@ -50,9 +51,48 @@ const INLINE_RUNTIME_SCRIPT = `
     return (el && el.value.trim()) || (state && state.teacher && state.teacher.teacher_id) || "teacher-wambui-ke";
   }
 
-  function getSessionApiKey() {
-    var el = document.getElementById("session-api-key-input");
-    return (el && el.value.trim()) || "";
+  function getAnthropicApiKey() {
+    var el = document.getElementById("session-anthropic-key-input");
+    if (el && el.value.trim()) return el.value.trim();
+    try { return window.localStorage.getItem("amal_anthropic_api_key") || ""; } catch (e) { return ""; }
+  }
+
+  function getGeminiApiKey() {
+    var el = document.getElementById("session-gemini-key-input");
+    if (el && el.value.trim()) return el.value.trim();
+    try { return window.localStorage.getItem("amal_gemini_api_key") || ""; } catch (e) { return ""; }
+  }
+
+  function initSavedKeys() {
+    try {
+      var savedAnt = window.localStorage.getItem("amal_anthropic_api_key") || "";
+      var savedGem = window.localStorage.getItem("amal_gemini_api_key") || "";
+      var antEl = document.getElementById("session-anthropic-key-input");
+      var gemEl = document.getElementById("session-gemini-key-input");
+      if (antEl && savedAnt && !antEl.value) antEl.value = savedAnt;
+      if (gemEl && savedGem && !gemEl.value) gemEl.value = savedGem;
+    } catch (e) {}
+  }
+
+  function showMemoryToast(messageText) {
+    var container = document.getElementById("amal-toast-container");
+    if (!container) return;
+    var text = messageText || "Amal learned something new about you. Discover in memories";
+    container.innerHTML =
+      '<div class="amal-toast" role="status" aria-live="polite">' +
+        '<div>' +
+          '<div style="font-weight:600;">Amal learned something new about you.</div>' +
+          '<div style="font-size:12px; color:rgba(255,255,255,0.82); margin-top:2px;">Discover in memories</div>' +
+        '</div>' +
+        '<div class="amal-toast-actions">' +
+          '<button type="button" class="amal-toast-link" data-action="toast-discover-memories">Discover in memories</button>' +
+          '<button type="button" class="amal-toast-dismiss" data-action="toast-dismiss">Dismiss</button>' +
+        '</div>' +
+      '</div>';
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function() {
+      if (container) container.innerHTML = "";
+    }, 9000);
   }
 
   function updateViewModeUI() {
@@ -69,10 +109,12 @@ const INLINE_RUNTIME_SCRIPT = `
 
     if (viewMode === "split") {
       layout.className = "workspace-split";
+      layout.style.maxWidth = "";
       chatCol.style.display = "block";
       dashCol.style.display = "block";
     } else if (viewMode === "chat") {
       layout.className = "workspace-single";
+      layout.style.maxWidth = "860px";
       chatCol.style.display = "block";
       dashCol.style.display = "none";
     } else {
@@ -91,28 +133,6 @@ const INLINE_RUNTIME_SCRIPT = `
       var msg = messages[i];
       html += '<div class="chat-bubble-wrap ' + esc(msg.role) + '">';
       html += '<div class="chat-bubble ' + esc(msg.role) + '">' + esc(msg.content) + '</div>';
-      if (msg.role === "assistant") {
-        var rList = msg.retrievedMemories || [];
-        var eList = msg.extractedCandidates || [];
-        if (rList.length > 0 || eList.length > 0) {
-          html += '<div class="turn-trace">';
-          if (rList.length > 0) {
-            html += '<div><strong>Retrieved (' + rList.length + '):</strong> ';
-            for (var r = 0; r < rList.length; r++) {
-              html += '<span class="trace-chip">' + esc(rList[r].category_label) + ': ' + esc(rList[r].statement) + '</span>';
-            }
-            html += '</div>';
-          }
-          if (eList.length > 0) {
-            html += '<div><strong>Saved by LLM (' + eList.length + '):</strong> ';
-            for (var k = 0; k < eList.length; k++) {
-              html += '<span class="trace-chip">[' + esc(eList[k].category) + '] ' + esc(eList[k].statement) + '</span>';
-            }
-            html += '</div>';
-          }
-          html += '</div>';
-        }
-      }
       html += '</div>';
     }
     stream.innerHTML = html;
@@ -191,8 +211,7 @@ const INLINE_RUNTIME_SCRIPT = `
       });
       if (state.settings && state.settings.banner_mode === "realtime" && activeBanners.length > 0) {
         var b = activeBanners[0];
-        alertsHtml += '<div class="notice-bar saved"><div><div style="font-weight:600; font-size:13.5px;">' + esc(b.title) + '</div>';
-        if (b.grouped_count > 1) alertsHtml += '<div class="notice-meta">' + esc(b.body) + '</div>';
+        alertsHtml += '<div class="notice-bar saved"><div><div style="font-weight:600; font-size:13.5px;">Amal learned something new about you. Discover in memories</div>';
         alertsHtml += '</div><div style="display:flex; gap:6px;">';
         alertsHtml += '<button type="button" class="btn btn-xs" data-action="notif-action" data-id="' + esc(b.id) + '" data-act="kept">Keep</button>';
         alertsHtml += '<button type="button" class="btn btn-xs btn-danger-ghost" data-action="notif-action" data-id="' + esc(b.id) + '" data-act="undo">Undo</button>';
@@ -263,7 +282,7 @@ const INLINE_RUNTIME_SCRIPT = `
     if (filterTab === "system") {
       var sysHtml = '<div style="display:flex; flex-direction:column; gap:16px;">';
       sysHtml += '<div class="minimal-panel"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">';
-      sysHtml += '<div><h3 style="font-size:15px; font-weight:600;">Always-Injected Core Profile Block</h3><div style="font-size:12.5px; color:var(--text-muted);">Injected into Claude Haiku on every turn (max ~300 tokens, Redis-cached)</div></div>';
+      sysHtml += '<div><h3 style="font-size:15px; font-weight:600;">Always-Injected Core Profile Block</h3><div style="font-size:12.5px; color:var(--text-muted);">Injected into Claude Sonnet on every turn (max ~300 tokens, Redis-cached)</div></div>';
       sysHtml += '<span class="tag">v' + esc(state.core_profile.version) + ' · ' + esc(state.core_profile.built_from_count) + ' facts</span></div>';
       sysHtml += '<pre class="mono-block">' + esc(state.core_profile.summary || "(No core profile memories yet)") + '</pre></div>';
 
@@ -345,7 +364,7 @@ const INLINE_RUNTIME_SCRIPT = `
     if (inputEl) inputEl.value = "";
 
     messages.push({ id: "u-" + Date.now(), role: "user", content: trimmed });
-    messages.push({ id: "thinking", role: "assistant", content: "Amal is thinking and extracting memories..." });
+    messages.push({ id: "thinking", role: "assistant", content: "Amal is thinking..." });
     renderChatStream();
 
     try {
@@ -355,7 +374,8 @@ const INLINE_RUNTIME_SCRIPT = `
         history: chatHistory,
         surface: "web",
         product_area: "chat",
-        api_key: getSessionApiKey() || undefined
+        anthropic_api_key: getAnthropicApiKey() || undefined,
+        gemini_api_key: getGeminiApiKey() || undefined
       });
       messages = messages.filter(function(m) { return m.id !== "thinking"; });
       chatHistory.push({ role: "user", content: trimmed });
@@ -363,14 +383,15 @@ const INLINE_RUNTIME_SCRIPT = `
       messages.push({
         id: "a-" + Date.now(),
         role: "assistant",
-        content: data.reply || data.error || "Done.",
-        retrievedMemories: (data.turn_context && data.turn_context.retrieved_memories) || [],
-        extractedCandidates: data.extracted_candidates || []
+        content: data.reply || data.error || "Done."
       });
       renderChatStream();
       if (data.state) {
         state = data.state;
         renderDashboard();
+      }
+      if (data.memory_stored || data.toast_message) {
+        showMemoryToast(data.toast_message || "Amal learned something new about you. Discover in memories");
       }
     } catch (err) {
       messages = messages.filter(function(m) { return m.id !== "thinking"; });
@@ -378,6 +399,8 @@ const INLINE_RUNTIME_SCRIPT = `
       renderChatStream();
     }
   }
+
+  initSavedKeys();
 
   document.addEventListener("click", async function(e) {
     var target = e.target;
@@ -416,7 +439,41 @@ const INLINE_RUNTIME_SCRIPT = `
       showKeyBar = !showKeyBar;
       var bar = document.getElementById("api-key-drawer");
       if (bar) bar.style.display = showKeyBar ? "flex" : "none";
-      actBtn.textContent = showKeyBar ? "Hide API Key" : "API Key";
+      actBtn.textContent = showKeyBar ? "Hide API Keys" : "API Keys";
+      return;
+    }
+
+    if (action === "save-api-keys") {
+      var antIn = document.getElementById("session-anthropic-key-input");
+      var gemIn = document.getElementById("session-gemini-key-input");
+      try {
+        if (antIn) window.localStorage.setItem("amal_anthropic_api_key", antIn.value.trim());
+        if (gemIn) window.localStorage.setItem("amal_gemini_api_key", gemIn.value.trim());
+      } catch (err) {}
+      actBtn.textContent = "Saved!";
+      setTimeout(function() { actBtn.textContent = "Save Keys"; }, 1400);
+      return;
+    }
+
+    if (action === "toast-discover-memories") {
+      var tc = document.getElementById("amal-toast-container");
+      if (tc) tc.innerHTML = "";
+      if (viewMode === "chat") {
+        viewMode = "memory";
+        updateViewModeUI();
+      }
+      filterTab = "populated";
+      renderDashboard();
+      var dashEl = document.getElementById("memory-dashboard");
+      if (dashEl && dashEl.scrollIntoView) {
+        dashEl.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      return;
+    }
+
+    if (action === "toast-dismiss") {
+      var tc2 = document.getElementById("amal-toast-container");
+      if (tc2) tc2.innerHTML = "";
       return;
     }
 
@@ -761,10 +818,16 @@ const INLINE_RUNTIME_SCRIPT = `
 export default function ClientWorkspace({ initialState }: ClientWorkspaceProps) {
   const teacherId = initialState.teacher?.teacher_id || "teacher-wambui-ke";
   const chatModel =
-    initialState.llm_status?.chat_model || "claude-3-5-haiku-latest";
-  const extractionModel =
-    initialState.llm_status?.extraction_model || "claude-3-5-haiku-latest";
-  const isLiveKey = Boolean(initialState.llm_status?.api_key_configured);
+    initialState.llm_status?.chat_model || "claude-sonnet-4-20250514";
+  const decisionModel =
+    initialState.llm_status?.decision_model ||
+    initialState.llm_status?.extraction_model ||
+    "gemini-2.5-flash";
+  const isLiveKey = Boolean(
+    initialState.llm_status?.anthropic_key_configured ||
+      initialState.llm_status?.gemini_key_configured ||
+      initialState.llm_status?.api_key_configured
+  );
 
   const totalSavedMemories =
     initialState.life_areas.reduce((acc, c) => acc + c.memories.length, 0) +
@@ -792,7 +855,7 @@ export default function ClientWorkspace({ initialState }: ClientWorkspaceProps) 
 
           <span className="status-pill">
             <span className={`status-dot ${isLiveKey ? "" : "offline"}`} />
-            {chatModel}
+            Chat: {chatModel} · Decision: {decisionModel}
           </span>
         </div>
 
@@ -887,7 +950,7 @@ export default function ClientWorkspace({ initialState }: ClientWorkspaceProps) 
                     Amal Teaching Assistant
                   </div>
                   <div className="chat-header-sub">
-                    Chat: {chatModel} · Extractor: {extractionModel}
+                    Agent: {chatModel} · Memory Decision: {decisionModel}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: "6px" }}>
@@ -896,7 +959,7 @@ export default function ClientWorkspace({ initialState }: ClientWorkspaceProps) 
                     className="btn btn-xs"
                     data-action="toggle-api-key"
                   >
-                    API Key
+                    Hide API Keys
                   </button>
                   <button
                     type="button"
@@ -911,32 +974,79 @@ export default function ClientWorkspace({ initialState }: ClientWorkspaceProps) 
               <div
                 id="api-key-drawer"
                 className="api-key-bar"
-                style={{ display: "none" }}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "stretch",
+                  gap: "6px",
+                }}
               >
-                <span
+                <div
                   style={{
-                    color: "var(--text-secondary)",
-                    whiteSpace: "nowrap",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
                   }}
                 >
-                  Anthropic Key:
-                </span>
-                <input
-                  id="session-api-key-input"
-                  type="password"
-                  className="input"
-                  style={{ flex: 1, padding: "4px 8px", fontSize: "12px" }}
-                  placeholder="sk-ant-api03-... (paste key for live Claude Haiku)"
-                />
+                  <span
+                    style={{
+                      color: "var(--text-secondary)",
+                      whiteSpace: "nowrap",
+                      width: "110px",
+                      fontSize: "11.5px",
+                      fontWeight: 500,
+                    }}
+                  >
+                    Anthropic Key:
+                  </span>
+                  <input
+                    id="session-anthropic-key-input"
+                    type="password"
+                    className="input"
+                    style={{ flex: 1, padding: "4px 8px", fontSize: "12px" }}
+                    placeholder="sk-ant-... (Claude Sonnet chat — or set ANTHROPIC_API_KEY in .env)"
+                  />
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                  }}
+                >
+                  <span
+                    style={{
+                      color: "var(--text-secondary)",
+                      whiteSpace: "nowrap",
+                      width: "110px",
+                      fontSize: "11.5px",
+                      fontWeight: 500,
+                    }}
+                  >
+                    Gemini Key:
+                  </span>
+                  <input
+                    id="session-gemini-key-input"
+                    type="password"
+                    className="input"
+                    style={{ flex: 1, padding: "4px 8px", fontSize: "12px" }}
+                    placeholder="AIzaSy... (Gemini Memory Decision API — or set GEMINI_API_KEY in .env)"
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-xs btn-primary"
+                    data-action="save-api-keys"
+                  >
+                    Save Keys
+                  </button>
+                </div>
               </div>
 
               <div className="chat-stream" id="chat-stream-container">
                 <div className="chat-bubble-wrap assistant">
                   <div className="chat-bubble assistant">
-                    Habari Mwalimu! I am Amal, your teaching assistant. Ask for
-                    help planning a lesson or share something about your
-                    classroom — your context is organized into the memory
-                    categories automatically.
+                    Habari Mwalimu! I am Amal, your teaching assistant. Ask me
+                    anything or share something about your classroom and work.
                   </div>
                 </div>
               </div>
@@ -1360,6 +1470,9 @@ export default function ClientWorkspace({ initialState }: ClientWorkspaceProps) 
           </div>
         </div>
       </main>
+
+      {/* Floating Toast Notification Container */}
+      <div id="amal-toast-container" className="amal-toast-container" />
 
       {/* Self-contained inline state + event-delegated runtime so buttons work even in single-document preview iframes */}
       <script

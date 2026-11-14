@@ -142,11 +142,14 @@ AMAL_EMBED_DIM = 1024
 # Staged taxonomy rollout: "phase2_propose_only" | "phase3_low_risk_auto" | "phase3_full_auto"
 AMAL_TAXONOMY_STAGE = os.environ.get("AMAL_TAXONOMY_STAGE", "phase3_full_auto")
 
-# Claude Haiku Chat & LLM Memory Extraction Configuration
+# Claude Sonnet Chat & Gemini Memory Decision API Configuration
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-AMAL_CHAT_MODEL = os.environ.get("AMAL_CHAT_MODEL", "claude-3-5-haiku-latest")
-AMAL_EXTRACTION_MODEL = os.environ.get("AMAL_EXTRACTION_MODEL", "claude-3-5-haiku-latest")
-AMAL_DREAM_MODEL = os.environ.get("AMAL_DREAM_MODEL", "claude-3-5-haiku-latest")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+
+AMAL_CHAT_MODEL = os.environ.get("AMAL_CHAT_MODEL", "claude-sonnet-4-20250514")
+AMAL_DECISION_MODEL = os.environ.get("AMAL_DECISION_MODEL", "gemini-2.5-flash")
+AMAL_EXTRACTION_MODEL = os.environ.get("AMAL_EXTRACTION_MODEL", AMAL_DECISION_MODEL)
+AMAL_DREAM_MODEL = os.environ.get("AMAL_DREAM_MODEL", AMAL_DECISION_MODEL)
 
 # LiteLLM router model aliases
 AMAL_LITELLM_ALIASES = {

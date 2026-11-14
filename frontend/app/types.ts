@@ -118,8 +118,11 @@ export interface CategoricalState {
   tombstone_count: number;
   llm_status?: {
     chat_model: string;
+    decision_model?: string;
     extraction_model: string;
     api_key_configured: boolean;
+    anthropic_key_configured?: boolean;
+    gemini_key_configured?: boolean;
     db_engine: string;
   };
 }

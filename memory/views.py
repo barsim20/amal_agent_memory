@@ -16,8 +16,10 @@ from django.views.decorators.http import require_http_methods
 
 from .constants import CORE_CATEGORIES
 from .llm import (
+    decide_and_extract_memories,
     extract_memories_with_llm,
     generate_chat_reply,
+    is_gemini_configured,
     is_llm_configured,
 )
 from .models import (
@@ -371,9 +373,12 @@ def build_categorical_state(teacher_id: str) -> dict[str, Any]:
         "tombstone_count": MemoryTombstone.objects.filter(teacher=teacher).count(),
         "quality_metrics": compute_undo_quality_metrics(),
         "llm_status": {
-            "chat_model": getattr(settings, "AMAL_CHAT_MODEL", "claude-3-5-haiku-latest"),
-            "extraction_model": getattr(settings, "AMAL_EXTRACTION_MODEL", "claude-3-5-haiku-latest"),
+            "chat_model": getattr(settings, "AMAL_CHAT_MODEL", "claude-sonnet-4-20250514"),
+            "decision_model": getattr(settings, "AMAL_DECISION_MODEL", "gemini-2.5-flash"),
+            "extraction_model": getattr(settings, "AMAL_DECISION_MODEL", "gemini-2.5-flash"),
             "api_key_configured": is_llm_configured(),
+            "anthropic_key_configured": is_llm_configured(),
+            "gemini_key_configured": is_gemini_configured(),
             "db_engine": settings.DATABASES["default"]["ENGINE"].split(".")[-1],
         },
     }
@@ -388,14 +393,52 @@ def dashboard_view(request: HttpRequest) -> HttpResponse:
 
 @csrf_exempt
 @require_http_methods(["POST"])
+def api_memory_decision(request: HttpRequest) -> JsonResponse:
+    """
+    Standalone Gemini Memory Decision API endpoint:
+    Evaluates a user message and returns whether it contains a durable memory to store
+    (`should_store: bool`, `decision_reason: str`, `memories: list`).
+    """
+    body = _parse_body(request)
+    teacher_id = _get_teacher_id(request, body)
+    user_message = (body.get("message") or "").strip()
+    if not user_message:
+        return JsonResponse({"error": "Message is required"}, status=400)
+
+    gemini_api_key = (body.get("gemini_api_key") or "").strip() or None
+    anthropic_api_key = (body.get("anthropic_api_key") or body.get("api_key") or "").strip() or None
+
+    teacher = get_or_create_teacher(teacher_id)
+    profile = getattr(teacher, "core_profile", None) or regenerate_core_profile(teacher)
+    active_life_areas = list(
+        MemoryCategory.objects.filter(
+            teacher=teacher,
+            kind="life_area",
+            status="active",
+        ).values("slug", "label_en")
+    )
+
+    decision_out = decide_and_extract_memories(
+        conversation_text=user_message,
+        core_profile_summary=profile.summary if profile else "",
+        active_life_areas=active_life_areas,
+        gemini_api_key=gemini_api_key,
+        anthropic_api_key=anthropic_api_key,
+    )
+    return JsonResponse({"decision": decision_out})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
 def api_chat(request: HttpRequest) -> JsonResponse:
     """
-    Conversational endpoint for chatting with the Amal Assistant (Claude Haiku):
+    Conversational endpoint for chatting with the Amal Assistant (Claude Sonnet) + Gemini Memory Decision API:
     1. Handles explicit memory commands ('What do you remember about me?', 'Forget...', 'YES'/'NO' consent replies)
-    2. Assembles per-turn memory context (`CoreProfile` + 3-signal RRF hybrid search)
-    3. Generates assistant reply using Claude Haiku (`AMAL_CHAT_MODEL`)
-    4. Extracts candidate memories from the teacher's message using the LLM extraction model (`AMAL_EXTRACTION_MODEL`)
-       and persists them via `run_live_memory_pass`.
+    2. Immediately runs the Gemini Memory Decision API (`decide_and_extract_memories`) right after receiving the query,
+       and if `should_store` is True, stores the memory right away via `run_live_memory_pass` and triggers the
+       privacy-friendly UI toast: "Amal learned something new about you. Discover in memories".
+    3. Assembles per-turn memory context (`CoreProfile` + 3-signal RRF hybrid search) including any newly stored facts.
+    4. Generates a natural conversational reply using Claude Sonnet (`AMAL_CHAT_MODEL`).
     """
     body = _parse_body(request)
     teacher_id = _get_teacher_id(request, body)
@@ -408,7 +451,8 @@ def api_chat(request: HttpRequest) -> JsonResponse:
     conversation_id = body.get("conversation_id", "conv-web-chat")
     message_id = body.get("message_id", f"msg-{int(timezone.now().timestamp() * 1000)}")
     chat_history = body.get("history") or []
-    api_key_override = (body.get("api_key") or "").strip() or None
+    anthropic_api_key = (body.get("anthropic_api_key") or body.get("api_key") or "").strip() or None
+    gemini_api_key = (body.get("gemini_api_key") or "").strip() or None
 
     teacher = get_or_create_teacher(teacher_id)
 
@@ -420,8 +464,16 @@ def api_chat(request: HttpRequest) -> JsonResponse:
                 "reply": cmd_res.get("reply", ""),
                 "command_handled": cmd_res.get("command"),
                 "chat_model": "amal-memory-tool",
+                "decision_model": "amal-memory-tool",
                 "extraction_model": "amal-memory-tool",
-                "live_llm": is_llm_configured(api_key_override),
+                "live_llm": is_llm_configured(anthropic_api_key) or is_gemini_configured(gemini_api_key),
+                "memory_decision": {
+                    "should_store": False,
+                    "decision_reason": "Handled by explicit memory command.",
+                    "memories": [],
+                },
+                "memory_stored": False,
+                "toast_message": None,
                 "turn_context": {
                     "retrieved_memories": [],
                     "skipped_retrieval": True,
@@ -433,24 +485,8 @@ def api_chat(request: HttpRequest) -> JsonResponse:
             }
         )
 
-    # 2. Assemble turn context (CoreProfile + 3-signal RRF hybrid search)
-    turn_context = assemble_turn_context(
-        teacher_id=teacher_id,
-        user_message=user_message,
-        surface=surface,
-        product_area=product_area,
-    )
-
-    # 3. Call Claude Haiku to generate the assistant's reply with injected memory context
-    chat_out = generate_chat_reply(
-        user_message=user_message,
-        turn_context=turn_context,
-        chat_history=chat_history,
-        teacher_name=teacher.display_name or teacher.teacher_id,
-        api_key_override=api_key_override,
-    )
-
-    # 4. Run LLM Memory Extraction (`extract_memories_with_llm`) + Live Pass persistence
+    # 2. Run Gemini Memory Decision API right after the query and store memories immediately
+    profile = getattr(teacher, "core_profile", None) or regenerate_core_profile(teacher)
     active_life_areas = list(
         MemoryCategory.objects.filter(
             teacher=teacher,
@@ -458,12 +494,16 @@ def api_chat(request: HttpRequest) -> JsonResponse:
             status="active",
         ).values("slug", "label_en")
     )
-    extracted_candidates, ext_model_used, ext_live_llm = extract_memories_with_llm(
+    decision_out = decide_and_extract_memories(
         conversation_text=user_message,
-        core_profile_summary=turn_context.get("core_profile", ""),
+        core_profile_summary=profile.summary if profile else "",
         active_life_areas=active_life_areas,
-        api_key_override=api_key_override,
+        gemini_api_key=gemini_api_key,
+        anthropic_api_key=anthropic_api_key,
     )
+    extracted_candidates = decision_out.get("memories", []) if decision_out.get("should_store") else []
+    ext_model_used = decision_out.get("model", "gemini-2.5-flash")
+    ext_live_llm = bool(decision_out.get("live_llm"))
 
     live_pass_results: list[dict[str, Any]] = []
     if extracted_candidates:
@@ -478,13 +518,53 @@ def api_chat(request: HttpRequest) -> JsonResponse:
         res_data = task_out.get() if hasattr(task_out, "get") else task_out
         live_pass_results = res_data.get("results", [])
 
+    memory_stored = any(
+        isinstance(r, dict)
+        and (
+            r.get("saved") is True
+            or r.get("status") in ("active", "saved", "updated")
+        )
+        for r in live_pass_results
+    )
+    toast_message = (
+        "Amal learned something new about you. Discover in memories"
+        if memory_stored
+        else None
+    )
+
+    # 3. Assemble turn context (CoreProfile + 3-signal RRF hybrid search) including newly saved memories
+    turn_context = assemble_turn_context(
+        teacher_id=teacher_id,
+        user_message=user_message,
+        surface=surface,
+        product_area=product_area,
+    )
+
+    # 4. Call Claude Sonnet to generate a natural conversational assistant reply
+    chat_out = generate_chat_reply(
+        user_message=user_message,
+        turn_context=turn_context,
+        chat_history=chat_history,
+        teacher_name=teacher.display_name or teacher.teacher_id,
+        api_key_override=anthropic_api_key,
+    )
+
     return JsonResponse(
         {
             "reply": chat_out["reply"],
             "chat_model": chat_out["model"],
+            "decision_model": ext_model_used,
             "extraction_model": ext_model_used,
             "live_llm": bool(chat_out["live_llm"] or ext_live_llm),
             "llm_error": chat_out.get("error"),
+            "memory_decision": {
+                "should_store": bool(decision_out.get("should_store")),
+                "decision_reason": decision_out.get("decision_reason", ""),
+                "model": ext_model_used,
+                "live_llm": ext_live_llm,
+            },
+            "memory_stored": memory_stored,
+            "toast_message": toast_message,
             "turn_context": turn_context,
             "extracted_candidates": extracted_candidates,
             "live_pass_results": live_pass_results,

@@ -359,7 +359,7 @@ def _create_or_group_notification(
             recent_banner.grouped_items = grouped
             recent_banner.grouped_count = len(grouped)
             recent_banner.memory = memory
-            recent_banner.title = f"Amal remembered {len(grouped)} things ({memory.statement})"
+            recent_banner.title = "Amal learned something new about you. Discover in memories"
             recent_banner.body = " · ".join(item["title"] for item in grouped)
             recent_banner.save()
             return recent_banner
@@ -621,13 +621,13 @@ def save_or_update_memory(
         if superseded_old:
             event_name = "memory.updated"
             notif_kind = "updated"
-            notif_title = f"Amal updated: {superseded_old.statement} → {stored_statement}"
+            notif_title = "Amal learned something new about you. Discover in memories"
             diff_before = superseded_old.statement
             diff_after = stored_statement
         else:
             event_name = "memory.saved"
             notif_kind = "saved"
-            notif_title = f"Amal remembered: {stored_statement}"
+            notif_title = "Amal learned something new about you. Discover in memories"
             diff_before = ""
             diff_after = stored_statement
 
